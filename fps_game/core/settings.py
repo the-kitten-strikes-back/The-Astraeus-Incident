@@ -1,7 +1,7 @@
 import math
 import os
 
-WIDTH, HEIGHT = 800, 500
+WIDTH, HEIGHT = 1500, 1000
 HALF_HEIGHT = HEIGHT // 2
 FPS = 60
 
@@ -17,7 +17,7 @@ SCALE = WIDTH // NUM_RAYS
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets", "images")
 LEVELS_DIR = os.path.join(BASE_DIR, "levels")
-
+SOUND_DIR = os.path.join(BASE_DIR, "assets", "sounds")
 WEAPON_DEFAULT_IMG = os.path.join(ASSETS_DIR, "weapon.png")
 WEAPON_IMAGE_MAP = {
     "Pistol": os.path.join(ASSETS_DIR, "pistol.png"),
@@ -90,3 +90,36 @@ ROOM_AMBIENCE_MAP = {
     "Y": {"floor": 2, "ceiling": 2, "tint": (180, 220, 255), "alpha": 40, "scan": False},
     "O": {"floor": 1, "ceiling": 1, "tint": (200, 180, 255), "alpha": 30, "scan": False},
 }
+EFFECTS_DIR = os.path.join(BASE_DIR, "assets", "sounds", "effects")
+EFFECT_FILES = {
+    "gunshot": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
+    "reload": os.path.join(EFFECTS_DIR, "reload.mp3"),
+    "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
+    "level_up": os.path.join(EFFECTS_DIR, "level_up.mp3"),
+}
+# Music configuration - maps level ranges to music files
+MUSIC_DIR = os.path.join(BASE_DIR, "assets", "sounds", "music")
+EFFECTS_DIR = os.path.join(BASE_DIR, "assets", "sounds", "effects")
+
+MUSIC_TRACKS = {
+    (0, 5): os.path.join(MUSIC_DIR, "levels0005.mp3"),
+    (6, 10): os.path.join(MUSIC_DIR, "levels0610.mp3"),
+    (11, 15): os.path.join(MUSIC_DIR, "levels1115.mp3"),
+    (16, 20): os.path.join(MUSIC_DIR, "levels1620.mp3"),
+}
+
+# Sound effects configuration
+EFFECT_FILES = {
+    "gunshot": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
+    "level_up": os.path.join(EFFECTS_DIR, "level_up.mp3"),
+    "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
+    "reload": os.path.join(EFFECTS_DIR, "reload.mp3"),
+    "laser": os.path.join(EFFECTS_DIR, "laser.mp3"),
+}
+
+def get_music_for_level(level):
+    """Get the music file path for a given level."""
+    for (start, end), music_path in MUSIC_TRACKS.items():
+        if start <= level <= end:
+            return music_path
+    return None

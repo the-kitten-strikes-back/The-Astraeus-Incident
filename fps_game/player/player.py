@@ -22,9 +22,9 @@ class Player:
         self.invincibility_frames = 0
 
         self.weapons = [
-            Weapon("Pistol", 50, 10, 10, 0.02),
-            Weapon("Shotgun", 25, 5, 5, 0.1),
-            Weapon("Sniper", 100, 3, 3, 0.005),
+            Weapon("Pistol",  50, 10, 10, 0.02),
+            Weapon("Shotgun", 25,  5,  5, 0.10),
+            Weapon("Sniper", 100,  3,  3, 0.005),
         ]
         self.current_weapon_index = 0
 
@@ -34,14 +34,17 @@ class Player:
     def get_weapon(self):
         return self.weapons[self.current_weapon_index]
 
-    def move(self, world, mouse_dx, doors=None):
+    def move(self, world, mouse_dx, doors=None, speed_scale: float = 1.0):
         keys = pygame.key.get_pressed()
         target_speed = 0.0
         if keys[pygame.K_w]:
             target_speed += self.speed
         if keys[pygame.K_s]:
             target_speed -= self.speed
-        self.current_speed += (target_speed - self.current_speed) * self.accel
+
+                                                     
+        scaled_target = target_speed * speed_scale
+        self.current_speed += (scaled_target - self.current_speed) * self.accel
 
         dx = math.cos(self.angle) * self.current_speed
         dy = math.sin(self.angle) * self.current_speed

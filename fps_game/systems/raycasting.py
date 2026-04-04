@@ -25,7 +25,7 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                 depth *= math.cos(player.angle - cur_angle)
                 depth_wall = depth
                 proj_height = (TILE * 300) / (depth + 0.0001)
-                color = 255 / (1 + depth * depth * 0.0001)
+                color = 240 / (1 + depth * depth * 0.00012)
                 if hit_door and door_texture is not None:
                     tex = door_texture
                 elif textures:
@@ -33,6 +33,11 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                     tex = textures.get(key)
                 else:
                     tex = None
+                
+                # Calculate column position and width to properly fill the screen
+                col_x = ray * WIDTH / NUM_RAYS
+                col_width = (ray + 1) * WIDTH / NUM_RAYS - col_x
+                
                 if tex is not None:
                     if tex:
                         tex_w = tex.get_width()
@@ -40,15 +45,17 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                         tex_x = int((x % TILE) / TILE * tex_w)
                         tex_x = max(0, min(tex_w - 1, tex_x))
                         column = tex.subsurface((tex_x, 0, 1, tex_h))
-                        column = pygame.transform.scale(column, (SCALE, int(proj_height)))
-                        shade = max(40, min(255, int(color)))
+                        column = pygame.transform.scale(column, (int(col_width), int(proj_height)))
+                        shade = max(35, min(255, int(color)))
                         column.fill((shade, shade, shade), special_flags=pygame.BLEND_MULT)
-                        screen.blit(column, (ray * SCALE, HALF_HEIGHT - proj_height // 2))
+                        column.fill((0, 10, 20), special_flags=pygame.BLEND_RGB_ADD)
+                        screen.blit(column, (int(col_x), HALF_HEIGHT - int(proj_height) // 2))
                 else:
+                    cool = (int(color * 0.9), int(color * 0.95), int(color))
                     pygame.draw.rect(
                         screen,
-                        (color, color, color),
-                        (ray * SCALE, HALF_HEIGHT - proj_height // 2, SCALE, proj_height),
+                        cool,
+                        (int(col_x), HALF_HEIGHT - int(proj_height) // 2, int(col_width), int(proj_height)),
                     )
                 break
 

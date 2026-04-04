@@ -4,7 +4,7 @@ import math
 import os
 import pygame
 
-from core.settings import WIDTH, HEIGHT, DELTA_ANGLE, WEAPON_DEFAULT_IMG, WEAPON_IMAGE_MAP
+from core.settings import EFFECT_FILES, WIDTH, HEIGHT, DELTA_ANGLE, WEAPON_DEFAULT_IMG, WEAPON_IMAGE_MAP
 
 
 class Weapon:
@@ -149,6 +149,11 @@ class WeaponSystem:
             if self.reload_timer <= 0:
                 weapon.ammo = weapon.max_ammo
                 self.reloading = False
+                try:
+                    if os.path.exists(EFFECT_FILES["reload"]):
+                        pygame.mixer.Sound(EFFECT_FILES["reload"]).play()
+                except (KeyError, pygame.error):
+                    pass
 
     def update_recoil(self):
         self.recoil_offset += self.recoil_velocity

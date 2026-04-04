@@ -27,7 +27,7 @@ def draw_health_packs(screen, health_packs, player, depth_buffer, anim_time=0.0)
             x = screen_x - size // 2
             y = HALF_HEIGHT - size // 2 + bob
 
-            ray_index = max(0, min(NUM_RAYS - 1, int(screen_x // SCALE)))
+            ray_index = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
             if 0 <= ray_index < len(depth_buffer):
                 if dist < depth_buffer[ray_index]:
                     pygame.draw.circle(

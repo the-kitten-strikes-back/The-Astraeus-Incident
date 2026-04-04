@@ -153,7 +153,7 @@ class GrenadeSystem:
             size = min(2000 / (dist + 0.0001), size_base)
             x2 = screen_x - size // 2
             y2 = HALF_HEIGHT - size // 2
-            ray_index = max(0, min(NUM_RAYS - 1, int(screen_x // SCALE)))
+            ray_index = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
             if 0 <= ray_index < len(depth_buffer):
                 if dist < depth_buffer[ray_index]:
                     surf = pygame.Surface((int(size), int(size)), pygame.SRCALPHA)
