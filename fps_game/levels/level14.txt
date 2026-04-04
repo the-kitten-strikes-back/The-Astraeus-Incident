@@ -1,0 +1,11 @@
+#DDABBB#CBCCC#BABBBB
+D..E.......X.......A
+A..DBA##..#DB##B...A
+C..C.R....D....CL..D
+#..#..E...D..E.D...B
+A..#CDA...B....C...D
+A......C..BDB###...B
+B..P...#......X....#
+A..C#DD#CC..ADCCB..C
+C....M...X...X.O..EC
+CD#BCCACDC#DACBDC#CC
