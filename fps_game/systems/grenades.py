@@ -123,7 +123,13 @@ class GrenadeSystem:
 
             if grenade["fuse"] <= 0:
                 self._explode(grenade, enemies, events)
-                pygame.mixer.Sound.play(pygame.mixer.Sound("fps_game/assets/sounds/effects/explosion.mp3"))
+                try:
+                    import os
+                    explosion_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "sounds", "effects", "explosion.mp3")
+                    if os.path.exists(explosion_path):
+                        pygame.mixer.Sound(explosion_path).play()
+                except Exception:
+                    pass
                 self.grenades.remove(grenade)
                 continue
 

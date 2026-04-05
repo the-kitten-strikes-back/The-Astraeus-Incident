@@ -68,7 +68,10 @@ from systems.torch import Torch
 class Game:
     def __init__(self):
         pygame.init()
-        pygame.mixer.init()
+        try:
+            pygame.mixer.init()
+        except pygame.error:
+            pass
 
         pygame.event.set_allowed(None)
         pygame.event.set_allowed([
@@ -78,7 +81,7 @@ class Game:
 
         self.time_scale   = 1.0
         self.time_frozen  = False
-        self.screen       = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
+        self.screen       = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock        = pygame.time.Clock()
         pygame.event.set_grab(True)
         pygame.mouse.set_visible(False)

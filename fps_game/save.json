@@ -4,7 +4,7 @@
   "kills": 1,
   "health": 55,
   "sensitivity": 0.003,
-  "fullscreen": true,
+  "fullscreen": false,
   "ammo": [
     7,
     5,
