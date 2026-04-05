@@ -168,16 +168,7 @@ def draw_scifi_hud(screen, phase=0.0, alert=False):
     for y in range(0, HEIGHT, 70):
         pygame.draw.line(overlay, grid, (0, y), (WIDTH, y), 1)
 
-    margin = 12
-    corner = 26
-    for pts in [
-        [(margin, margin), (margin + corner, margin), (margin, margin), (margin, margin + corner)],
-        [(WIDTH - margin, margin), (WIDTH - margin - corner, margin), (WIDTH - margin, margin), (WIDTH - margin, margin + corner)],
-        [(margin, HEIGHT - margin), (margin + corner, HEIGHT - margin), (margin, HEIGHT - margin), (margin, HEIGHT - margin - corner)],
-        [(WIDTH - margin, HEIGHT - margin), (WIDTH - margin - corner, HEIGHT - margin), (WIDTH - margin, HEIGHT - margin), (WIDTH - margin, HEIGHT - margin - corner)],
-    ]:
-        pygame.draw.line(overlay, frame, pts[0], pts[1], 2)
-        pygame.draw.line(overlay, frame, pts[2], pts[3], 2)
+
 
     panel_h = 70
     panel_y = HEIGHT - panel_h - 10

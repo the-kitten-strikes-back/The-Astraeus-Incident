@@ -28,8 +28,8 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
 
                 # Sharp distance falloff — close walls bright, far walls very dark.
                 # This is critical for the "enclosed corridor" feel.
-                brightness = 240 / (1 + depth * depth * 0.00013)
-                brightness = max(18, min(240, brightness))
+                brightness = 600 / (1 + depth * depth * 0.00013)
+                brightness = max(18, min(600, brightness))
 
                 if hit_door and door_texture is not None:
                     tex = door_texture

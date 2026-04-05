@@ -63,7 +63,7 @@ from core.settings import (
     DOOR_IMG,
     TILE,
 )
-
+from systems.torch import Torch
 
 class Game:
     def __init__(self):
@@ -86,8 +86,9 @@ class Game:
         self.hud_font = pygame.font.SysFont("arial", 22)
 
         self.current_music_level = -1
-        self.music_enabled       = True
-
+        self.music_enabled = True
+        self.torch_enabled = False
+        self.torch = Torch(radius=200)
         self.weapon_image = pygame.image.load(WEAPON_DEFAULT_IMG).convert_alpha()
         self.enemy_sprite = pygame.image.load(ENEMY_IMG).convert_alpha()
         self.enemy_sprites  = self._load_enemy_sprites()
@@ -772,6 +773,15 @@ class Game:
                         self.player.current_weapon_index = 1
                     if event.key == pygame.K_3:
                         self.player.current_weapon_index = 2
+                    if event.key == pygame.K_9:
+                        if not hasattr(self, "_torch_toggle_lock"):
+                            self._torch_toggle_lock = False
+
+                        if not self._torch_toggle_lock:
+                            self.torch_enabled = not self.torch_enabled
+                            self._torch_toggle_lock = True
+                    else:
+                        self._torch_toggle_lock = False
                     if event.key == pygame.K_ESCAPE:
                         self.state = "pause"
                     if event.key == pygame.K_f:
@@ -876,6 +886,9 @@ class Game:
         return True
 
     def update(self):
+        if self.torch_enabled:
+            self.torch.draw(self.screen, (int(self.player.x), int(self.player.y)))
+
         if self.state not in {"playing", "loop"}:
             if self.state == "cutscene":
                 self.cutscene_time += 0.06
@@ -989,6 +1002,7 @@ class Game:
             effective_time = effective_world * focus_scale * self.anomaly_scale
 
             self.weapon_system.update_reload(self.player)
+
             update_enemies(
                 self.enemies, self.player, self.world, self.doors,
                 self.on_player_hit, effective_time,

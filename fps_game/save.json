@@ -1,13 +1,13 @@
 {
-  "level": 1,
-  "score": 80,
-  "kills": 3,
-  "health": 70,
+  "level": 0,
+  "score": 20,
+  "kills": 1,
+  "health": 55,
   "sensitivity": 0.003,
   "fullscreen": true,
   "ammo": [
-    10,
+    7,
     5,
-    0
+    3
   ]
 }

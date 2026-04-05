@@ -99,7 +99,7 @@ from core.settings import (
     DOOR_IMG,
     TILE,
 )
-
+from systems.torch import Torch
 
 class Game:
     def __init__(self):
@@ -122,8 +122,9 @@ class Game:
         self.hud_font = pygame.font.SysFont("arial", 22)
 
         self.current_music_level = -1
-        self.music_enabled       = True
-
+        self.music_enabled = True
+        self.torch_enabled = False
+        self.torch = Torch(pygame.image.load("fps_game/assets/images/torch.png"))
         self.weapon_image = pygame.image.load(WEAPON_DEFAULT_IMG).convert_alpha()
         self.enemy_sprite = pygame.image.load(ENEMY_IMG).convert_alpha()
         self.enemy_sprites  = self._load_enemy_sprites()
@@ -134,11 +135,12 @@ class Game:
         self.floor_texture   = self.floor_textures[0]
         self.ceiling_texture = self.ceiling_textures[0]
         (
-            self.interior_ceiling_overlay,
             self.interior_floor_overlay,
             self.interior_grade,
             self.interior_vignette,
         ) = self._build_interior_layers()
+
+        self.ceiling_big = self._build_ceiling_texture()
 
         self.weapon_system  = WeaponSystem(self.weapon_image)
         self.grenade_system = GrenadeSystem()
@@ -202,8 +204,6 @@ class Game:
         self.fps_counter  = 0
         self.fps_display  = 0
         self.fps_timer    = 0.0
-
-        self.ceiling_big = self._build_ceiling_texture()
 
         self.story_beats = [
             {
@@ -374,9 +374,7 @@ class Game:
         self.load_current_level()
         self.save_game()
 
-
     def _load_wall_textures(self):
-        """Procedural spaceship wall panels — dark steel-blue palette."""
         textures = {}
         for key, path in WALL_TEXTURE_FILES.items():
             try:
@@ -392,30 +390,26 @@ class Game:
                 }
                 base = palette.get(key, (28, 36, 52))
                 img.fill(base)
-                # Horizontal panel seams
                 seam = tuple(min(255, c + 22) for c in base)
                 for y in range(0, 64, 16):
                     pygame.draw.line(img, seam, (0, y), (64, y), 1)
-                # Vertical structural ribs
                 rib = tuple(min(255, c + 35) for c in base)
                 for x in range(0, 64, 32):
                     pygame.draw.line(img, rib, (x, 0), (x, 64), 2)
-                # Rivet dots
                 rivet = tuple(min(255, c + 60) for c in base)
                 for ry in range(0, 64, 16):
                     for rx in range(0, 64, 32):
                         pygame.draw.circle(img, rivet, (rx + 1, ry + 1), 2)
-                # Subtle top-of-panel highlight
                 hi = tuple(min(255, c + 9) for c in base)
                 for y in range(1, 64, 16):
                     pygame.draw.line(img, hi, (0, y), (64, y), 1)
             textures[key] = pygame.transform.scale(img, (64, 64))
         return textures
-    def _build_ceiling_texture(self):
+
+    def _build_ceiling_texture(self, room_tint=None, room_tint_alpha=0):
         surf = pygame.Surface((WIDTH, HALF_HEIGHT))
         surf.fill((8, 10, 18))
 
-        # Base panel grid — large scale, not tile-scale
         panel_w = WIDTH // 6
         panel_h = HALF_HEIGHT // 3
 
@@ -423,28 +417,20 @@ class Game:
             for col in range(7):
                 px = col * panel_w
                 py = row * panel_h
-
-                # Alternate between ceiling texture variants per panel
                 variant = (row + col) % len(self.ceiling_textures)
                 tex = self.ceiling_textures[variant]
                 scaled = pygame.transform.smoothscale(tex, (panel_w, panel_h))
                 surf.blit(scaled, (px, py))
-
-                # Panel border seams
                 seam_color = (30, 40, 60)
                 pygame.draw.rect(surf, seam_color,
-                                pygame.Rect(px, py, panel_w, panel_h), 1)
+                                 pygame.Rect(px, py, panel_w, panel_h), 1)
 
-        # Structural ribs running full width
         rib_color = (40, 55, 80)
         for y in range(0, HALF_HEIGHT, panel_h):
             pygame.draw.line(surf, rib_color, (0, y), (WIDTH, y), 2)
-
-        # Vertical support columns
         for x in range(0, WIDTH, panel_w):
             pygame.draw.line(surf, rib_color, (x, 0), (x, HALF_HEIGHT), 2)
 
-        # Fluorescent light bars — one per panel column, offset by row
         for col in range(6):
             for row in range(3):
                 if (row + col) % 3 != 0:
@@ -453,38 +439,44 @@ class Game:
                 by = row * panel_h + panel_h // 3
                 bw = panel_w // 2
                 bh = 5
-
-                # Glow halo
+                bar_color = (210, 215, 185)
+                if room_tint and room_tint_alpha > 0:
+                    rt = room_tint
+                    mix = room_tint_alpha / 255
+                    bar_color = (
+                        int(bar_color[0] * (1 - mix) + rt[0] * mix),
+                        int(bar_color[1] * (1 - mix) + rt[1] * mix),
+                        int(bar_color[2] * (1 - mix) + rt[2] * mix),
+                    )
                 glow_surf = pygame.Surface((bw + 16, bh + 10), pygame.SRCALPHA)
                 glow_surf.fill((80, 90, 60, 40))
                 surf.blit(glow_surf, (bx - 8, by - 5))
-
-                # Bar itself
-                pygame.draw.rect(surf, (210, 215, 185), (bx, by, bw, bh))
-
-                # Subtle reflection below bar
+                pygame.draw.rect(surf, bar_color, (bx, by, bw, bh))
                 pygame.draw.rect(surf, (50, 55, 40), (bx, by + bh, bw, 3))
 
-        # Rivet dots at panel intersections
         rivet_color = (60, 75, 100)
         for y in range(0, HALF_HEIGHT, panel_h):
             for x in range(0, WIDTH, panel_w):
                 pygame.draw.circle(surf, rivet_color, (x, y), 3)
 
-        # Depth gradient — dark at top (far away), lighter toward horizon
+        if room_tint and room_tint_alpha > 0:
+            tint_surf = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+            tint_surf.fill((*room_tint, room_tint_alpha // 2))
+            surf.blit(tint_surf, (0, 0))
+
         gradient = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
         for y in range(HALF_HEIGHT):
-            ratio = y / HALF_HEIGHT          # 0 = top, 1 = horizon
+            ratio = y / HALF_HEIGHT
             alpha = int(180 * (1.0 - ratio))
             pygame.draw.line(gradient, (0, 0, 0, alpha), (0, y), (WIDTH, y))
         surf.blit(gradient, (0, 0))
 
-        # Cool blue tint pass
         tint = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
         tint.fill((10, 20, 40, 35))
         surf.blit(tint, (0, 0))
 
         return surf
+
     def _load_enemy_sprites(self):
         sprites = {}
         for key, path in ENEMY_SPRITE_FILES.items():
@@ -527,99 +519,58 @@ class Game:
         return {"rooms": rooms, "links": links, "font": font}
 
     def _load_tile_textures(self, paths, kind="floor"):
-        """
-        Procedural floor / ceiling tiles — dark carbon grid with cyan guide-lines
-        (floor) and near-black panels with warm fluorescent light bars (ceiling).
-        """
         textures = []
         for idx, path in enumerate(paths):
             try:
                 img = pygame.image.load(path).convert()
             except FileNotFoundError:
                 img = pygame.Surface((64, 64))
- 
+
                 if kind == "ceiling":
                     bases = [(12, 16, 24), (10, 14, 22), (16, 18, 28)]
                     base  = bases[idx % len(bases)]
                     img.fill(base)
-                    # Panel grid
                     grid = tuple(min(255, c + 20) for c in base)
                     for y in range(0, 64, 16):
                         pygame.draw.line(img, grid, (0, y), (64, y), 1)
                     for x in range(0, 64, 16):
                         pygame.draw.line(img, grid, (x, 0), (x, 64), 1)
-                    # Fluorescent light strip (warm white)
                     strip_x = [8, 40, 24][idx % 3]
                     pygame.draw.rect(img, (200, 210, 180), (strip_x, 26, 16, 4))
                     pygame.draw.rect(img, (55, 60, 45),    (strip_x - 2, 30, 20, 3))
- 
-                else:  # floor
+
+                else:
                     bases = [(18, 22, 26), (20, 18, 24), (16, 24, 28)]
                     base  = bases[idx % len(bases)]
                     img.fill(base)
-                    # Main tile grid
                     grid = tuple(min(255, c + 30) for c in base)
                     for y in range(0, 64, 16):
                         pygame.draw.line(img, grid, (0, y), (64, y), 1)
                     for x in range(0, 64, 16):
                         pygame.draw.line(img, grid, (x, 0), (x, 64), 1)
-                    # Sub-grid
                     sub = tuple(min(255, c + 10) for c in base)
                     for y in range(0, 64, 8):
                         pygame.draw.line(img, sub, (0, y), (64, y), 1)
-                    # Amber hazard stripe on variant 1
                     if idx == 1:
                         pygame.draw.line(img, (55, 45, 15), (0, 0),  (64, 64), 2)
                         pygame.draw.line(img, (55, 45, 15), (0, 16), (48, 64), 1)
-                    # Specular highlight square
                     hi = tuple(min(255, c + 7) for c in base)
                     pygame.draw.rect(img, hi, (2, 2, 28, 28))
- 
+
             textures.append(pygame.transform.scale(img, (64, 64)))
         return textures
 
     def _build_interior_layers(self):
-        """
-        Per-frame overlay surfaces that sell the spaceship interior atmosphere:
-          ceiling_overlay — dark gradient + recessed panels + fluorescent bars
-          floor_overlay   — dark gradient + cyan perspective grid + console decals
-          grade           — overall blue colour-grade
-          vignette        — heavy edge darkening
-        """
-        #   Ceiling overlay          
-        ceiling = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-        # Gradient: very dark at top, transparent at horizon
-        for y in range(HALF_HEIGHT):
-            ratio = y / HALF_HEIGHT
-            alpha = int(210 * (1.0 - ratio))
-            pygame.draw.line(ceiling, (5, 7, 14, alpha), (0, y), (WIDTH, y))
-        # Panel grid
-        panel_col = (60, 90, 130, 50)
-        for y in range(0, HALF_HEIGHT, 48):
-            pygame.draw.line(ceiling, panel_col, (0, y), (WIDTH, y), 1)
-        for x in range(0, WIDTH, 120):
-            pygame.draw.line(ceiling, (50, 75, 110, 35), (x, 0), (x, HALF_HEIGHT), 1)
-        # Fluorescent light bars
-        light_bar  = (220, 225, 200, 95)
-        light_glow = (100, 110, 80,  30)
-        for x in range(60, WIDTH - 60, 240):
-            pygame.draw.rect(ceiling, light_glow, (x - 4, 14, 88, 8))
-            pygame.draw.rect(ceiling, light_bar,  (x,     16, 80, 4))
-            pygame.draw.rect(ceiling, light_glow, (x - 4, 20, 88, 4))
- 
         floor = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-        # Gradient: transparent at horizon, dark at bottom
         for y in range(HALF_HEIGHT):
             ratio = y / HALF_HEIGHT
             alpha = int(190 * ratio)
             pygame.draw.line(floor, (3, 5, 10, alpha), (0, y), (WIDTH, y))
-        # Perspective grid lines
         grid_col = (40, 180, 220, 25)
         for x in range(0, WIDTH + 1, 80):
             pygame.draw.line(floor, grid_col, (x, 0), (WIDTH // 2, HALF_HEIGHT - 1), 1)
         for y in range(0, HALF_HEIGHT, 60):
             pygame.draw.line(floor, (50, 80, 110, 18), (0, y), (WIDTH, y), 1)
-        # Corner console decals
         cc = (30, 80, 120, 65)
         pygame.draw.rect(floor, cc, (0, HALF_HEIGHT - 80, 200, 80), 2)
         for i in range(5):
@@ -630,19 +581,17 @@ class Game:
             pygame.draw.line(floor, cc,
                              (WIDTH - 192, HALF_HEIGHT - 90 + i * 14),
                              (WIDTH - 8,   HALF_HEIGHT - 90 + i * 14), 1)
- 
-        #   Colour grade          
+
         grade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         grade.fill((4, 8, 18, 26))
         pygame.draw.rect(grade, (0, 4, 12, 38), (0, 0, WIDTH, HALF_HEIGHT))
- 
-        #   Edge vignette          
+
         vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         pygame.draw.rect(vignette, (0, 0, 0, 115), vignette.get_rect())
         inner = pygame.Rect(55, 38, WIDTH - 110, HEIGHT - 76)
         pygame.draw.rect(vignette, (0, 0, 0, 0), inner)
- 
-        return ceiling, floor, grade, vignette
+
+        return floor, grade, vignette
 
     def load_current_level(self):
         self.world, self.enemies, self.health_packs, spawn, self.rooms, self.doors = load_level(
@@ -713,7 +662,6 @@ class Game:
         except OSError:
             pass
 
-
     def _blit_tiled(self, target, texture, rect):
         tx = texture.get_width()
         ty = texture.get_height()
@@ -776,7 +724,6 @@ class Game:
         self.score                = 0
         self.kills                = 0
         self.ending_choice        = ""
-        # reset temporal
         self.time_dilation  = TimeDilation()
         self.time_rewind    = TimeRewind()
         self.temporal_echo  = TemporalEcho()
@@ -830,7 +777,6 @@ class Game:
             except pygame.error as e:
                 print(f"Failed to load music {music_path}: {e}")
 
-
     def handle_events(self):
         pygame.event.pump()
 
@@ -863,6 +809,8 @@ class Game:
                         self.player.current_weapon_index = 1
                     if event.key == pygame.K_3:
                         self.player.current_weapon_index = 2
+                    if event.key == pygame.K_9:
+                        self.torch_enabled = not self.torch_enabled
                     if event.key == pygame.K_ESCAPE:
                         self.state = "pause"
                     if event.key == pygame.K_f:
@@ -872,7 +820,6 @@ class Game:
                         self.toggle_fullscreen()
                     if event.key == pygame.K_e:
                         self._toggle_nearby_door()
-                    # Grenades
                     if event.key == pygame.K_z:
                         self.grenade_system.try_throw("space",   self.player)
                     if event.key == pygame.K_x:
@@ -967,7 +914,6 @@ class Game:
 
         return True
 
-
     def update(self):
         if self.state not in {"playing", "loop"}:
             if self.state == "cutscene":
@@ -976,21 +922,15 @@ class Game:
 
         dil_world, dil_player = self.time_dilation.update()
 
-        # Fracture zone modifiers
         frac_world  = self.fracture_zones.get_world_scale()
         frac_player = self.fracture_zones.get_player_scale()
 
-        # Combined scales
-        # World enemies/physics scale
         base_world_scale  = self.time_scale * dil_world
-        # Player movement scale (separate so player isn't fully frozen)
         base_player_scale = self.time_scale * dil_player
 
-        # Apply fracture zone on top
         effective_world  = base_world_scale  * abs(frac_world)
         effective_player = base_player_scale * abs(frac_player)
 
-        # Sign from fracture (reverse = negative player_scale)
         reverse_controls = (frac_player < 0) or (frac_world < 0)
 
         self.fracture_zones.update()
@@ -1006,11 +946,9 @@ class Game:
             self.mouse_dx      = 0
             self.last_mouse_dx = mx
 
-            # Record history for rewind / echo every frame
             self.time_rewind.record(self.player, self.enemies)
             self.temporal_echo.record(self.player)
 
-            # Record trail when dilation active
             if self.time_dilation.active:
                 self.temporal_visuals.record_trail(
                     self.player, self.time_dilation.energy_ratio
@@ -1023,11 +961,9 @@ class Game:
 
             self.player.mouse_sensitivity = self.settings["sensitivity"]
 
-            # Reverse controls in mirror/reverse fracture zones
             effective_mx = -mx if reverse_controls else mx
             self.player.move(self.world, effective_mx, self.doors, speed_scale=effective_player)
 
-            # Room tracking
             room_key = self.rooms.get(
                 (int(self.player.x // TILE) * TILE, int(self.player.y // TILE) * TILE)
             )
@@ -1044,15 +980,15 @@ class Game:
                         self.floor_texture = self.floor_textures[ambience["floor"] % len(self.floor_textures)]
                     if self.ceiling_textures:
                         self.ceiling_texture = self.ceiling_textures[ambience["ceiling"] % len(self.ceiling_textures)]
-                # Tell fracture zone system
                 self.fracture_zones.enter_room(room_key)
-                # Show fracture message if applicable
-                if room_key in self.fracture_zones.active_effect.__class__.__dict__ if self.fracture_zones.active_effect else False:
-                    pass
                 if self.fracture_zones.active_effect:
                     self.glitch_messages.append(
                         {"text": self.fracture_zones.message, "timer": 60}
                     )
+                self.ceiling_big = self._build_ceiling_texture(
+                    room_tint=self.room_tint,
+                    room_tint_alpha=self.room_tint_alpha,
+                )
             elif not room_key and self.current_room_key:
                 self.current_room_key = ""
                 self.current_room     = ""
@@ -1064,8 +1000,8 @@ class Game:
                     self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
                 if self.ceiling_textures:
                     self.ceiling_texture = self.ceiling_textures[self.current_level_index % len(self.ceiling_textures)]
+                self.ceiling_big = self._build_ceiling_texture()
 
-            # Focus / frozen scale
             focus_scale = 1.6 if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) else 1.0
             if self.time_frozen:
                 focus_scale = 0.1
@@ -1092,6 +1028,10 @@ class Game:
             effective_time = effective_world * focus_scale * self.anomaly_scale
 
             self.weapon_system.update_reload(self.player)
+            if self.torch_enabled:
+                self.torch.draw_light(self.screen, int(self.player.x), int(self.player.y))
+                self.torch.draw_sprite(self.screen, int(self.player.x), int(self.player.y))
+
             update_enemies(
                 self.enemies, self.player, self.world, self.doors,
                 self.on_player_hit, effective_time,
@@ -1138,7 +1078,6 @@ class Game:
         self._finish_frame_counters()
 
     def _finish_frame_counters(self):
-        """Shared per-frame counter decrements called at end of update."""
         self.weapon_system.update_recoil()
         self.weapon_system.update_sway(-self.last_mouse_dx * 0.4, -self.last_mouse_dx * 0.15)
         self.player.update_invincibility()
@@ -1154,12 +1093,12 @@ class Game:
         self.bob_offset = math.sin(self.bob_phase) * 6 * move_amount
         self.bob_side   = math.sin(self.bob_phase * 0.5) * 3 * move_amount
 
-        if self.hit_flash > 0:       self.hit_flash       -= 1
-        if self.hit_marker > 0:      self.hit_marker      -= 1
-        if self.score_pulse > 0:     self.score_pulse      -= 1
-        if self.room_timer > 0:      self.room_timer        -= 1
-        if self.restart_cooldown > 0: self.restart_cooldown -= 1
-        if self.shake > 0:           self.shake             -= 1
+        if self.hit_flash > 0:        self.hit_flash        -= 1
+        if self.hit_marker > 0:       self.hit_marker        -= 1
+        if self.score_pulse > 0:      self.score_pulse       -= 1
+        if self.room_timer > 0:       self.room_timer         -= 1
+        if self.restart_cooldown > 0: self.restart_cooldown  -= 1
+        if self.shake > 0:            self.shake              -= 1
 
         self.screen_zoom     *= 0.85
         if abs(self.screen_zoom) < 0.002:
@@ -1174,7 +1113,6 @@ class Game:
             msg["timer"] -= 1
             if msg["timer"] <= 0:
                 self.glitch_messages.remove(msg)
-
 
     def draw_enemies(self, surface):
         for enemy in self.enemies:
@@ -1256,7 +1194,6 @@ class Game:
         dx = (base_size - sprite_size) // 2
         dy = (base_size - sprite_size) // 2
         surface.blit(sprite, (x + dx, y + dy))
-
 
     def render(self):
         if self.state == "menu":
@@ -1340,17 +1277,15 @@ class Game:
 
         else:
             scene = pygame.Surface((WIDTH, HEIGHT))
-            scene.fill((6, 8, 14))   # near-black base
- 
-            # Ceiling — tile the texture, then heavily darken (looks enclosed)
+            scene.fill((6, 8, 14))
+
             scene.blit(self.ceiling_big, (0, 0))
- 
-            # Floor — tile, then apply a distance-gradient darkening
+
             self._blit_tiled(scene, self.floor_texture,
                              pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
             floor_grad = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
             for _fy in range(HALF_HEIGHT):
-                _ratio = _fy / HALF_HEIGHT          # 0=horizon, 1=bottom
+                _ratio = _fy / HALF_HEIGHT
                 _a     = int(100 + 130 * _ratio)
                 pygame.draw.line(floor_grad, (0, 0, 0, _a), (0, _fy), (WIDTH, _fy))
             scene.blit(floor_grad, (0, HALF_HEIGHT))
@@ -1360,8 +1295,6 @@ class Game:
                 tint.fill((*self.room_tint, self.room_tint_alpha))
                 scene.blit(tint, (0, 0))
 
-            if self.interior_ceiling_overlay:
-                scene.blit(self.interior_ceiling_overlay, (0, 0))
             if self.interior_floor_overlay:
                 scene.blit(self.interior_floor_overlay, (0, HALF_HEIGHT))
 
@@ -1406,7 +1339,6 @@ class Game:
 
             self.screen.fill((0, 0, 0))
 
-            # Chromatic aberration
             if self.chromatic_timer > 0:
                 offset = 2 + self.chromatic_timer
                 red  = scaled.copy()
@@ -1436,7 +1368,6 @@ class Game:
                 pygame.draw.rect(vig, (0, 0, 0, 0), pygame.Rect(50, 35, WIDTH - 100, HEIGHT - 70))
                 self.screen.blit(vig, (0, 0))
 
-            # Anomaly scan
             if self.anomaly_timer > 0:
                 scan = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 for y in range(0, HEIGHT, 4):
@@ -1444,7 +1375,6 @@ class Game:
                     scan.fill((80, 120, 200, a), pygame.Rect(0, y, WIDTH, 2))
                 self.screen.blit(scan, (0, 0))
 
-            # Room-specific scan overlay
             if self.room_scan and self.room_tint_alpha > 0:
                 scan = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 for y in range(0, HEIGHT, 6):
@@ -1460,7 +1390,6 @@ class Game:
                 dil_surf.fill((40, 160, 255, dil_a))
                 self.screen.blit(dil_surf, (0, 0))
 
-            # Rewind flash overlay
             if rewinding and self.time_rewind.flash_alpha > 0:
                 flash_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 flash_surf.fill((180, 200, 255, self.time_rewind.flash_alpha))
@@ -1476,7 +1405,6 @@ class Game:
             draw_score(self.screen, self.hud_font, self.score, self.kills,
                        self.score_pulse / 10 if self.score_pulse > 0 else 0.0)
 
-            # FPS
             fps_text = self.hud_font.render(f"FPS: {self.fps_display}", True, (100, 255, 100))
             self.screen.blit(fps_text, (WIDTH - 150, 20))
 
@@ -1523,7 +1451,6 @@ class Game:
             self.screen.blit(overlay, (0, 0))
 
         pygame.display.flip()
-
 
     def run(self):
         running = True
@@ -3997,6 +3924,36 @@ def draw_temporal_hud(screen, dilation: TimeDilation, rewind: TimeRewind,
                                True, fc)
         fsurf.set_alpha(a)
         screen.blit(fsurf, (x0, y0 + gap * len(abilities) + 6))
+```
+
+## fps_game/systems/torch.py
+Filename: `fps_game/systems/torch.py`
+
+```python
+import pygame
+import math
+
+class Torch:
+    def __init__(self, sprite, radius=220, intensity=180):
+        self.sprite = sprite
+        self.radius = radius
+        self.intensity = intensity
+
+    def draw_light(self, surface, player_x, player_y):
+        # Create radial gradient for sci-fi glow
+        glow = pygame.Surface((self.radius*2, self.radius*2), pygame.SRCALPHA)
+        for r in range(self.radius, 0, -4):
+            alpha = int(self.intensity * (r / self.radius))
+            pygame.draw.circle(glow, (80, 200, 255, alpha), (self.radius, self.radius), r)
+        
+        # Center glow on player
+        surface.blit(glow, (player_x - self.radius, player_y - self.radius), special_flags=pygame.BLEND_ADD)
+
+    def draw_sprite(self, surface, player_x, player_y):
+        # Draw torch sprite at bottom-right HUD
+        rect = self.sprite.get_rect()
+        rect.bottomright = (surface.get_width()-40, surface.get_height()-40)
+        surface.blit(self.sprite, rect)
 ```
 
 ## fps_game/systems/ui.py
