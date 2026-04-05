@@ -1,22 +1,10 @@
-audio = true
 modules = ["python-3.12"]
 [agent]
 expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = [
-  "SDL2",
-  "SDL2_image",
-  "SDL2_mixer",
-  "SDL2_ttf",
-  "fontconfig",
-  "freetype",
-  "libjpeg",
-  "libpng",
-  "pkg-config",
-  "portmidi",
-]
+packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "fontconfig", "freetype", "libjpeg", "libpng", "pkg-config", "portmidi"]
 
 [workflows]
 runButton = "Project"
@@ -42,3 +30,7 @@ task = "shell.exec"
 args = "SDL_AUDIODRIVER=dummy cd fps_game && python main.py"
 
 audio = true
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "SDL_AUDIODRIVER=dummy python fps_game/main.py"]
