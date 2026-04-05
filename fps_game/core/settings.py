@@ -25,8 +25,9 @@ WEAPON_IMAGE_MAP = {
     "Sniper": os.path.join(ASSETS_DIR, "sniper.png"),
 }
 ENEMY_IMG = os.path.join(ASSETS_DIR, "enemy.png")
-WALL_IMG = os.path.join(ASSETS_DIR, "wall.png")
-DOOR_IMG = os.path.join(ASSETS_DIR, "door.png")
+WALL_IMG  = os.path.join(ASSETS_DIR, "wall.png")
+DOOR_IMG  = os.path.join(ASSETS_DIR, "door.png")
+TORCH_IMG = os.path.join(ASSETS_DIR, "torch.png")
 WALL_TEXTURE_FILES = {
     "#": os.path.join(ASSETS_DIR, "wall.png"),
     "A": os.path.join(ASSETS_DIR, "wall_a.png"),

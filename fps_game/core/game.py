@@ -62,6 +62,7 @@ from core.settings import (
     ROOM_AMBIENCE_MAP,
     DOOR_IMG,
     TILE,
+    TORCH_IMG,
 )
 from systems.torch import Torch
 
@@ -91,7 +92,8 @@ class Game:
         self.current_music_level = -1
         self.music_enabled = True
         self.torch_enabled = False
-        self.torch = Torch(radius=200)
+        self.torch = Torch(radius=420)
+        self.torch.load_sprite(TORCH_IMG)
         self.weapon_image = pygame.image.load(WEAPON_DEFAULT_IMG).convert_alpha()
         self.enemy_sprite = pygame.image.load(ENEMY_IMG).convert_alpha()
         self.enemy_sprites  = self._load_enemy_sprites()
@@ -889,9 +891,6 @@ class Game:
         return True
 
     def update(self):
-        if self.torch_enabled:
-            self.torch.draw(self.screen, (int(self.player.x), int(self.player.y)))
-
         if self.state not in {"playing", "loop"}:
             if self.state == "cutscene":
                 self.cutscene_time += 0.06
@@ -1281,10 +1280,16 @@ class Game:
             self.grenade_system.draw_grenades(scene, self.player, self.depth_buffer, self.anim_time)
             self.temporal_echo.draw(scene, self.player, self.depth_buffer)
             self.weapon_system.draw_bullets(scene)
-            self.weapon_system.draw_weapon(
-                scene, self.player,
-                bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
-            )
+            if self.torch_enabled:
+                self.torch.draw_sprite(
+                    scene,
+                    bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
+                )
+            else:
+                self.weapon_system.draw_weapon(
+                    scene, self.player,
+                    bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
+                )
 
             rewinding = self.time_rewind.rewinding
             scene = self.temporal_visuals.apply_pre_blit(
@@ -1370,6 +1375,9 @@ class Game:
                 self.screen.blit(flash_surf, (0, 0))
 
             self.temporal_visuals.draw_dilation_trail_overlay(self.screen)
+
+            if self.torch_enabled:
+                self.torch.draw_light(self.screen, self.anim_time)
 
             pulse = self.hit_marker / 6 if self.hit_marker > 0 else 0.0
             draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
