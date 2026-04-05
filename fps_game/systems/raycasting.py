@@ -25,7 +25,12 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                 depth *= math.cos(player.angle - cur_angle)
                 depth_wall = depth
                 proj_height = (TILE * 300) / (depth + 0.0001)
-                color = 240 / (1 + depth * depth * 0.00012)
+
+                # Sharp distance falloff — close walls bright, far walls very dark.
+                # This is critical for the "enclosed corridor" feel.
+                brightness = 240 / (1 + depth * depth * 0.00013)
+                brightness = max(18, min(240, brightness))
+
                 if hit_door and door_texture is not None:
                     tex = door_texture
                 elif textures:
@@ -33,29 +38,37 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                     tex = textures.get(key)
                 else:
                     tex = None
-                
-                # Calculate column position and width to properly fill the screen
-                col_x = ray * WIDTH / NUM_RAYS
+
+                col_x     = ray * WIDTH / NUM_RAYS
                 col_width = (ray + 1) * WIDTH / NUM_RAYS - col_x
-                
-                if tex is not None:
-                    if tex:
-                        tex_w = tex.get_width()
-                        tex_h = tex.get_height()
-                        tex_x = int((x % TILE) / TILE * tex_w)
-                        tex_x = max(0, min(tex_w - 1, tex_x))
-                        column = tex.subsurface((tex_x, 0, 1, tex_h))
-                        column = pygame.transform.scale(column, (int(col_width), int(proj_height)))
-                        shade = max(35, min(255, int(color)))
-                        column.fill((shade, shade, shade), special_flags=pygame.BLEND_MULT)
-                        column.fill((0, 10, 20), special_flags=pygame.BLEND_RGB_ADD)
-                        screen.blit(column, (int(col_x), HALF_HEIGHT - int(proj_height) // 2))
+
+                if tex is not None and tex:
+                    tex_w  = tex.get_width()
+                    tex_h  = tex.get_height()
+                    tex_x  = int((x % TILE) / TILE * tex_w)
+                    tex_x  = max(0, min(tex_w - 1, tex_x))
+                    column = tex.subsurface((tex_x, 0, 1, tex_h))
+                    column = pygame.transform.scale(column, (int(col_width), int(proj_height)))
+
+                    # Cool steel tint: push RGB toward dark blue-grey
+                    shade = max(18, min(255, int(brightness)))
+                    r_mul = max(0, min(255, int(shade * 0.72)))
+                    g_mul = max(0, min(255, int(shade * 0.85)))
+                    b_mul = max(0, min(255, int(shade * 1.10)))
+                    column.fill((r_mul, g_mul, b_mul), special_flags=pygame.BLEND_MULT)
+                    column.fill((0, 6, 16), special_flags=pygame.BLEND_RGB_ADD)
+
+                    screen.blit(column, (int(col_x), HALF_HEIGHT - int(proj_height) // 2))
                 else:
-                    cool = (int(color * 0.9), int(color * 0.95), int(color))
+                    # Fallback: dark cool-steel colour
+                    r = max(0, int(brightness * 0.55))
+                    g = max(0, int(brightness * 0.68))
+                    b = max(0, int(brightness * 0.88))
                     pygame.draw.rect(
                         screen,
-                        cool,
-                        (int(col_x), HALF_HEIGHT - int(proj_height) // 2, int(col_width), int(proj_height)),
+                        (r, g, b),
+                        (int(col_x), HALF_HEIGHT - int(proj_height) // 2,
+                         int(col_width), int(proj_height)),
                     )
                 break
 

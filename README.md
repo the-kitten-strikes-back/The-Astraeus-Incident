@@ -15,5 +15,5 @@ As you navigate the collapsing interior of Astraeus, you must piece together wha
 Or if you were ever meant to leave at all.
 
 **This is not a story about survival.**
+
 It’s a story about understanding something that should not exist.
-(left intentionally vague to avoid spoilers)

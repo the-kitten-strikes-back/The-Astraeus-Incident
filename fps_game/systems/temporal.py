@@ -94,18 +94,20 @@ class TimeDilation:
                                                                                
 class TimeRewind:
     def __init__(self):
-        self._history: list[dict] = []                                 
-        self._tick   = 0                                                 
+        self._history: list[dict] = []        # oldest → newest
+        self._tick   = 0
         self._sub    = max(1, 60 // REWIND_FPS)
-
-        self.cooldown        = 0                                       
+ 
+        self.cooldown        = 0
         self.cooldown_max    = int(REWIND_COOLDOWN_SECS * 60)
         self.rewinding       = False
-        self.rewind_frames   = 0                                            
-        self._restore_snap   = None                                
-        self.flash_alpha     = 0                                        
-
+        self._playback       = []             # reversed slice we walk through
+        self._playback_idx   = 0             # current position in _playback
+        self.flash_alpha     = 0
+ 
+ 
     def record(self, player, enemies):
+        """Called every frame during normal play to build the history buffer."""
         self._tick += 1
         if self._tick % self._sub != 0:
             return
@@ -113,66 +115,76 @@ class TimeRewind:
         self._history.append(snap)
         if len(self._history) > REWIND_MAX_FRAMES:
             self._history.pop(0)
-
+ 
+ 
     def can_rewind(self):
         return self.cooldown <= 0 and len(self._history) >= 2 and not self.rewinding
-
+ 
     def trigger(self):
         if not self.can_rewind():
             return False
-                                              
-        self._restore_snap = self._history[0]
+ 
+        # Reverse the history so index 0 = most-recent, last = oldest.
+        # We'll step through this one frame at a time during update().
+        self._playback     = list(reversed(self._history))
+        self._playback_idx = 0
         self._history.clear()
-        self.rewinding     = True
-        self.rewind_frames = REWIND_DURATION_FRAMES
-        self.cooldown      = self.cooldown_max
-        self.flash_alpha   = 220
+ 
+        self.rewinding   = True
+        self.cooldown    = self.cooldown_max
+        self.flash_alpha = 220
         return True
-
+ 
+ 
     def update(self, player, enemies):
         if self.cooldown > 0:
             self.cooldown -= 1
-
+ 
         if self.flash_alpha > 0:
-            self.flash_alpha = max(0, self.flash_alpha - 12)
-
+            self.flash_alpha = max(0, self.flash_alpha - 10)
+ 
         if not self.rewinding:
             return False
-
-        self.rewind_frames -= 1
-        if self.rewind_frames <= 0:
-            self._apply(player, enemies)
-            self.rewinding = False
-
+ 
+        # Apply the current playback frame
+        if self._playback_idx < len(self._playback):
+            snap = self._playback[self._playback_idx]
+            self._apply(player, enemies, snap)
+            self._playback_idx += 1
+        else:
+            # Reached the end of recorded history — rewind complete
+            self.rewinding     = False
+            self._playback     = []
+            self._playback_idx = 0
+ 
         return True
-
-    def _apply(self, player, enemies):
-        snap = self._restore_snap
-        if snap is None:
-            return
+ 
+ 
+    def _apply(self, player, enemies, snap):
+        """Write one history snapshot onto the live player and enemies."""
         p = snap["p"]
-        player.x                  = p["x"]
-        player.y                  = p["y"]
-        player.angle              = p["angle"]
-        player.health             = p["health"]
+        player.x                    = p["x"]
+        player.y                    = p["y"]
+        player.angle                = p["angle"]
+        player.health               = p["health"]
         player.invincibility_frames = p["inv"]
-        player.current_speed      = p["speed"]
-
+        player.current_speed        = p["speed"]
+ 
         for i, estate in enumerate(snap["e"]):
             if i < len(enemies):
                 e = enemies[i]
-                e["x"]          = estate["x"]
-                e["y"]          = estate["y"]
-                e["health"]     = estate["health"]
-                e["alive"]      = estate["alive"]
-                e["stun_timer"] = estate["stun"]
-                e["slow_timer"] = estate["slow"]
-                e["death_timer"]= estate["death"]
-
+                e["x"]           = estate["x"]
+                e["y"]           = estate["y"]
+                e["health"]      = estate["health"]
+                e["alive"]       = estate["alive"]
+                e["stun_timer"]  = estate["stun"]
+                e["slow_timer"]  = estate["slow"]
+                e["death_timer"] = estate["death"]
+ 
+ 
     @property
     def cooldown_ratio(self):
         return 1.0 - self.cooldown / self.cooldown_max if self.cooldown_max else 1.0
-
 
                                                                                
                                  

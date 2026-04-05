@@ -143,13 +143,11 @@ class Game:
         self.weapon_system  = WeaponSystem(self.weapon_image)
         self.grenade_system = GrenadeSystem()
 
-        # ── Temporal systems ────────────────────────────────────────────────
         self.time_dilation  = TimeDilation()
         self.time_rewind    = TimeRewind()
         self.temporal_echo  = TemporalEcho()
         self.fracture_zones = FractureZones()
         self.temporal_visuals = TemporalVisuals()
-        # ────────────────────────────────────────────────────────────────────
 
         self.level_paths = sorted(glob.glob(f"{LEVELS_DIR}/level*.txt"))
         if not self.level_paths:
@@ -204,6 +202,8 @@ class Game:
         self.fps_counter  = 0
         self.fps_display  = 0
         self.fps_timer    = 0.0
+
+        self.ceiling_big = self._build_ceiling_texture()
 
         self.story_beats = [
             {
@@ -374,22 +374,117 @@ class Game:
         self.load_current_level()
         self.save_game()
 
-    # ─────────────────────────────────────────────────────── asset loaders ──
 
     def _load_wall_textures(self):
+        """Procedural spaceship wall panels — dark steel-blue palette."""
         textures = {}
         for key, path in WALL_TEXTURE_FILES.items():
             try:
                 img = pygame.image.load(path).convert()
             except FileNotFoundError:
                 img = pygame.Surface((64, 64))
-                base = 60 + (ord(key) * 7) % 120
-                img.fill((base, base, base))
-                for i in range(0, 64, 8):
-                    pygame.draw.line(img, (base + 20, base + 20, base + 30), (i, 0), (i, 64))
+                palette = {
+                    "#": (28, 36, 52),
+                    "A": (22, 34, 58),
+                    "B": (34, 28, 50),
+                    "C": (22, 40, 44),
+                    "D": (38, 32, 26),
+                }
+                base = palette.get(key, (28, 36, 52))
+                img.fill(base)
+                # Horizontal panel seams
+                seam = tuple(min(255, c + 22) for c in base)
+                for y in range(0, 64, 16):
+                    pygame.draw.line(img, seam, (0, y), (64, y), 1)
+                # Vertical structural ribs
+                rib = tuple(min(255, c + 35) for c in base)
+                for x in range(0, 64, 32):
+                    pygame.draw.line(img, rib, (x, 0), (x, 64), 2)
+                # Rivet dots
+                rivet = tuple(min(255, c + 60) for c in base)
+                for ry in range(0, 64, 16):
+                    for rx in range(0, 64, 32):
+                        pygame.draw.circle(img, rivet, (rx + 1, ry + 1), 2)
+                # Subtle top-of-panel highlight
+                hi = tuple(min(255, c + 9) for c in base)
+                for y in range(1, 64, 16):
+                    pygame.draw.line(img, hi, (0, y), (64, y), 1)
             textures[key] = pygame.transform.scale(img, (64, 64))
         return textures
+    def _build_ceiling_texture(self):
+        surf = pygame.Surface((WIDTH, HALF_HEIGHT))
+        surf.fill((8, 10, 18))
 
+        # Base panel grid — large scale, not tile-scale
+        panel_w = WIDTH // 6
+        panel_h = HALF_HEIGHT // 3
+
+        for row in range(4):
+            for col in range(7):
+                px = col * panel_w
+                py = row * panel_h
+
+                # Alternate between ceiling texture variants per panel
+                variant = (row + col) % len(self.ceiling_textures)
+                tex = self.ceiling_textures[variant]
+                scaled = pygame.transform.smoothscale(tex, (panel_w, panel_h))
+                surf.blit(scaled, (px, py))
+
+                # Panel border seams
+                seam_color = (30, 40, 60)
+                pygame.draw.rect(surf, seam_color,
+                                pygame.Rect(px, py, panel_w, panel_h), 1)
+
+        # Structural ribs running full width
+        rib_color = (40, 55, 80)
+        for y in range(0, HALF_HEIGHT, panel_h):
+            pygame.draw.line(surf, rib_color, (0, y), (WIDTH, y), 2)
+
+        # Vertical support columns
+        for x in range(0, WIDTH, panel_w):
+            pygame.draw.line(surf, rib_color, (x, 0), (x, HALF_HEIGHT), 2)
+
+        # Fluorescent light bars — one per panel column, offset by row
+        for col in range(6):
+            for row in range(3):
+                if (row + col) % 3 != 0:
+                    continue
+                bx = col * panel_w + panel_w // 4
+                by = row * panel_h + panel_h // 3
+                bw = panel_w // 2
+                bh = 5
+
+                # Glow halo
+                glow_surf = pygame.Surface((bw + 16, bh + 10), pygame.SRCALPHA)
+                glow_surf.fill((80, 90, 60, 40))
+                surf.blit(glow_surf, (bx - 8, by - 5))
+
+                # Bar itself
+                pygame.draw.rect(surf, (210, 215, 185), (bx, by, bw, bh))
+
+                # Subtle reflection below bar
+                pygame.draw.rect(surf, (50, 55, 40), (bx, by + bh, bw, 3))
+
+        # Rivet dots at panel intersections
+        rivet_color = (60, 75, 100)
+        for y in range(0, HALF_HEIGHT, panel_h):
+            for x in range(0, WIDTH, panel_w):
+                pygame.draw.circle(surf, rivet_color, (x, y), 3)
+
+        # Depth gradient — dark at top (far away), lighter toward horizon
+        gradient = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+        for y in range(HALF_HEIGHT):
+            ratio = y / HALF_HEIGHT          # 0 = top, 1 = horizon
+            alpha = int(180 * (1.0 - ratio))
+            pygame.draw.line(gradient, (0, 0, 0, alpha), (0, y), (WIDTH, y))
+        surf.blit(gradient, (0, 0))
+
+        # Cool blue tint pass
+        tint = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+        tint.fill((10, 20, 40, 35))
+        surf.blit(tint, (0, 0))
+
+        return surf
     def _load_enemy_sprites(self):
         sprites = {}
         for key, path in ENEMY_SPRITE_FILES.items():
@@ -432,60 +527,122 @@ class Game:
         return {"rooms": rooms, "links": links, "font": font}
 
     def _load_tile_textures(self, paths, kind="floor"):
+        """
+        Procedural floor / ceiling tiles — dark carbon grid with cyan guide-lines
+        (floor) and near-black panels with warm fluorescent light bars (ceiling).
+        """
         textures = []
         for idx, path in enumerate(paths):
             try:
                 img = pygame.image.load(path).convert()
             except FileNotFoundError:
                 img = pygame.Surface((64, 64))
-                base = 40 + (idx * 30) % 120
+ 
                 if kind == "ceiling":
-                    img.fill((base, base + 10, base + 20))
-                    for y in range(0, 64, 8):
-                        pygame.draw.line(img, (base + 20, base + 30, base + 40), (0, y), (64, y), 1)
-                else:
-                    img.fill((base + 10, base + 10, base))
-                    for x in range(0, 64, 8):
-                        pygame.draw.line(img, (base + 30, base + 20, base + 10), (x, 0), (x, 64), 1)
+                    bases = [(12, 16, 24), (10, 14, 22), (16, 18, 28)]
+                    base  = bases[idx % len(bases)]
+                    img.fill(base)
+                    # Panel grid
+                    grid = tuple(min(255, c + 20) for c in base)
                     for y in range(0, 64, 16):
-                        pygame.draw.line(img, (base + 40, base + 30, base + 20), (0, y), (64, y), 1)
+                        pygame.draw.line(img, grid, (0, y), (64, y), 1)
+                    for x in range(0, 64, 16):
+                        pygame.draw.line(img, grid, (x, 0), (x, 64), 1)
+                    # Fluorescent light strip (warm white)
+                    strip_x = [8, 40, 24][idx % 3]
+                    pygame.draw.rect(img, (200, 210, 180), (strip_x, 26, 16, 4))
+                    pygame.draw.rect(img, (55, 60, 45),    (strip_x - 2, 30, 20, 3))
+ 
+                else:  # floor
+                    bases = [(18, 22, 26), (20, 18, 24), (16, 24, 28)]
+                    base  = bases[idx % len(bases)]
+                    img.fill(base)
+                    # Main tile grid
+                    grid = tuple(min(255, c + 30) for c in base)
+                    for y in range(0, 64, 16):
+                        pygame.draw.line(img, grid, (0, y), (64, y), 1)
+                    for x in range(0, 64, 16):
+                        pygame.draw.line(img, grid, (x, 0), (x, 64), 1)
+                    # Sub-grid
+                    sub = tuple(min(255, c + 10) for c in base)
+                    for y in range(0, 64, 8):
+                        pygame.draw.line(img, sub, (0, y), (64, y), 1)
+                    # Amber hazard stripe on variant 1
+                    if idx == 1:
+                        pygame.draw.line(img, (55, 45, 15), (0, 0),  (64, 64), 2)
+                        pygame.draw.line(img, (55, 45, 15), (0, 16), (48, 64), 1)
+                    # Specular highlight square
+                    hi = tuple(min(255, c + 7) for c in base)
+                    pygame.draw.rect(img, hi, (2, 2, 28, 28))
+ 
             textures.append(pygame.transform.scale(img, (64, 64)))
         return textures
 
     def _build_interior_layers(self):
+        """
+        Per-frame overlay surfaces that sell the spaceship interior atmosphere:
+          ceiling_overlay — dark gradient + recessed panels + fluorescent bars
+          floor_overlay   — dark gradient + cyan perspective grid + console decals
+          grade           — overall blue colour-grade
+          vignette        — heavy edge darkening
+        """
+        #   Ceiling overlay          
         ceiling = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-        ceiling.fill((0, 0, 0, 40))
-        panel_color = (40, 60, 80, 60)
-        light_color = (120, 170, 210, 80)
-        for x in range(0, WIDTH, 96):
-            pygame.draw.line(ceiling, panel_color, (x, 0), (x, HALF_HEIGHT), 1)
-        for y in range(0, HALF_HEIGHT, 64):
-            pygame.draw.line(ceiling, panel_color, (0, y), (WIDTH, y), 1)
-        for x in range(48, WIDTH, 192):
-            pygame.draw.rect(ceiling, light_color, (x, 12, 70, 6))
-            pygame.draw.rect(ceiling, (70, 110, 150, 120), (x, 20, 70, 2))
-
-        floor = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-        floor.fill((0, 0, 0, 20))
-        grid = (30, 50, 70, 50)
-        for x in range(0, WIDTH, 48):
-            pygame.draw.line(floor, grid, (x, 0), (x, HALF_HEIGHT), 1)
+        # Gradient: very dark at top, transparent at horizon
+        for y in range(HALF_HEIGHT):
+            ratio = y / HALF_HEIGHT
+            alpha = int(210 * (1.0 - ratio))
+            pygame.draw.line(ceiling, (5, 7, 14, alpha), (0, y), (WIDTH, y))
+        # Panel grid
+        panel_col = (60, 90, 130, 50)
         for y in range(0, HALF_HEIGHT, 48):
-            pygame.draw.line(floor, grid, (0, y), (WIDTH, y), 1)
-        pygame.draw.rect(floor, (60, 100, 140, 80), (24, HALF_HEIGHT - 70, 160, 36), 2)
-        pygame.draw.rect(floor, (60, 100, 140, 80), (WIDTH - 210, HALF_HEIGHT - 90, 180, 44), 2)
-
+            pygame.draw.line(ceiling, panel_col, (0, y), (WIDTH, y), 1)
+        for x in range(0, WIDTH, 120):
+            pygame.draw.line(ceiling, (50, 75, 110, 35), (x, 0), (x, HALF_HEIGHT), 1)
+        # Fluorescent light bars
+        light_bar  = (220, 225, 200, 95)
+        light_glow = (100, 110, 80,  30)
+        for x in range(60, WIDTH - 60, 240):
+            pygame.draw.rect(ceiling, light_glow, (x - 4, 14, 88, 8))
+            pygame.draw.rect(ceiling, light_bar,  (x,     16, 80, 4))
+            pygame.draw.rect(ceiling, light_glow, (x - 4, 20, 88, 4))
+ 
+        floor = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+        # Gradient: transparent at horizon, dark at bottom
+        for y in range(HALF_HEIGHT):
+            ratio = y / HALF_HEIGHT
+            alpha = int(190 * ratio)
+            pygame.draw.line(floor, (3, 5, 10, alpha), (0, y), (WIDTH, y))
+        # Perspective grid lines
+        grid_col = (40, 180, 220, 25)
+        for x in range(0, WIDTH + 1, 80):
+            pygame.draw.line(floor, grid_col, (x, 0), (WIDTH // 2, HALF_HEIGHT - 1), 1)
+        for y in range(0, HALF_HEIGHT, 60):
+            pygame.draw.line(floor, (50, 80, 110, 18), (0, y), (WIDTH, y), 1)
+        # Corner console decals
+        cc = (30, 80, 120, 65)
+        pygame.draw.rect(floor, cc, (0, HALF_HEIGHT - 80, 200, 80), 2)
+        for i in range(5):
+            pygame.draw.line(floor, cc, (8, HALF_HEIGHT - 70 + i * 14),
+                             (192, HALF_HEIGHT - 70 + i * 14), 1)
+        pygame.draw.rect(floor, cc, (WIDTH - 200, HALF_HEIGHT - 100, 200, 100), 2)
+        for i in range(6):
+            pygame.draw.line(floor, cc,
+                             (WIDTH - 192, HALF_HEIGHT - 90 + i * 14),
+                             (WIDTH - 8,   HALF_HEIGHT - 90 + i * 14), 1)
+ 
+        #   Colour grade          
         grade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        grade.fill((10, 20, 30, 35))
-        pygame.draw.rect(grade, (0, 10, 20, 45), (0, 0, WIDTH, HALF_HEIGHT))
-
+        grade.fill((4, 8, 18, 26))
+        pygame.draw.rect(grade, (0, 4, 12, 38), (0, 0, WIDTH, HALF_HEIGHT))
+ 
+        #   Edge vignette          
         vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, 90), vignette.get_rect(), border_radius=18)
-        pygame.draw.rect(vignette, (0, 0, 0, 0), pygame.Rect(40, 28, WIDTH - 80, HEIGHT - 56))
-
+        pygame.draw.rect(vignette, (0, 0, 0, 115), vignette.get_rect())
+        inner = pygame.Rect(55, 38, WIDTH - 110, HEIGHT - 76)
+        pygame.draw.rect(vignette, (0, 0, 0, 0), inner)
+ 
         return ceiling, floor, grade, vignette
-
-    # ─────────────────────────────────────────────────────── level / save ──
 
     def load_current_level(self):
         self.world, self.enemies, self.health_packs, spawn, self.rooms, self.doors = load_level(
@@ -496,12 +653,12 @@ class Game:
             self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
         if self.ceiling_textures:
             self.ceiling_texture = self.ceiling_textures[self.current_level_index % len(self.ceiling_textures)]
+        self.ceiling_big = self._build_ceiling_texture()
         self.current_room     = ""
         self.current_room_key = ""
         self.room_tint        = (0, 0, 0)
         self.room_tint_alpha  = 0
         self.room_scan        = False
-        # Reset temporal state on level change
         self.time_rewind._history.clear()
         self.temporal_echo._recording.clear()
         self.fracture_zones.leave_room()
@@ -556,7 +713,6 @@ class Game:
         except OSError:
             pass
 
-    # ─────────────────────────────────────────────────────── helpers ──────
 
     def _blit_tiled(self, target, texture, rect):
         tx = texture.get_width()
@@ -674,7 +830,6 @@ class Game:
             except pygame.error as e:
                 print(f"Failed to load music {music_path}: {e}")
 
-    # ─────────────────────────────────────────────────────── events ───────
 
     def handle_events(self):
         pygame.event.pump()
@@ -726,15 +881,13 @@ class Game:
                         self.grenade_system.try_throw("stun",    self.player)
                     if event.key == pygame.K_v:
                         self.grenade_system.try_throw("nuclear", self.player)
-                    # ── Temporal abilities ──────────────────────────────────
                     if event.key == pygame.K_q:
                         self.time_dilation.toggle()
                         if self.time_dilation.active:
                             self.glitch_messages.append(
                                 {"text": "TIME DILATION ACTIVE", "timer": 40}
                             )
-                    if event.key == pygame.K_r:
-                        # R = rewind (overrides reload only when NOT holding weapon UI)
+                    if event.key == pygame.K_t:
                         if self.time_rewind.can_rewind():
                             if self.time_rewind.trigger():
                                 self.temporal_visuals.trigger_glitch(strength=1.6)
@@ -747,7 +900,6 @@ class Game:
                             self.glitch_messages.append(
                                 {"text": "TEMPORAL ECHO SPAWNED", "timer": 40}
                             )
-                    # ────────────────────────────────────────────────────────
 
                 elif self.state == "pause":
                     if event.key == pygame.K_ESCAPE:
@@ -815,7 +967,6 @@ class Game:
 
         return True
 
-    # ─────────────────────────────────────────────────────── update ───────
 
     def update(self):
         if self.state not in {"playing", "loop"}:
@@ -823,7 +974,6 @@ class Game:
                 self.cutscene_time += 0.06
             return
 
-        # ── Compute temporal scales ────────────────────────────────────────
         dil_world, dil_player = self.time_dilation.update()
 
         # Fracture zone modifiers
@@ -866,13 +1016,7 @@ class Game:
                     self.player, self.time_dilation.energy_ratio
                 )
 
-            # Apply rewind if active
             rewinding = self.time_rewind.update(self.player, self.enemies)
-            if rewinding:
-                # Skip normal update during rewind animation
-                self._finish_frame_counters()
-                return
-
             if rewinding:
                 self._finish_frame_counters()
                 return
@@ -922,7 +1066,7 @@ class Game:
                     self.ceiling_texture = self.ceiling_textures[self.current_level_index % len(self.ceiling_textures)]
 
             # Focus / frozen scale
-            focus_scale = 0.6 if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) else 1.0
+            focus_scale = 1.6 if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) else 1.0
             if self.time_frozen:
                 focus_scale = 0.1
             if self.anomaly_timer > 0:
@@ -998,7 +1142,6 @@ class Game:
         self.weapon_system.update_recoil()
         self.weapon_system.update_sway(-self.last_mouse_dx * 0.4, -self.last_mouse_dx * 0.15)
         self.player.update_invincibility()
-        # Use dilation-affected time for bullet physics
         effective_time = self.time_scale * self.time_dilation.world_scale
         self.weapon_system.update_bullets(self.world, self.enemies, effective_time)
 
@@ -1032,7 +1175,6 @@ class Game:
             if msg["timer"] <= 0:
                 self.glitch_messages.remove(msg)
 
-    # ─────────────────────────────────────────────────────── draw enemies ─
 
     def draw_enemies(self, surface):
         for enemy in self.enemies:
@@ -1084,7 +1226,6 @@ class Game:
                                 flash.fill((255, 120, 120, 120))
                                 sprite.blit(flash, (0, 0))
 
-                            # ── Temporal dilation ghost echo on enemies ──
                             if self.time_dilation.active:
                                 ghost = sprite.copy()
                                 ghost.fill((60, 200, 255, 80), special_flags=pygame.BLEND_RGBA_MULT)
@@ -1116,7 +1257,6 @@ class Game:
         dy = (base_size - sprite_size) // 2
         surface.blit(sprite, (x + dx, y + dy))
 
-    # ─────────────────────────────────────────────────────── render ───────
 
     def render(self):
         if self.state == "menu":
@@ -1199,11 +1339,21 @@ class Game:
             )
 
         else:
-            # ── 3-D scene surface ──────────────────────────────────────────
             scene = pygame.Surface((WIDTH, HEIGHT))
-            scene.fill((20, 20, 24))
-            self._blit_stretched(scene, self.ceiling_texture, pygame.Rect(0, 0, WIDTH, HALF_HEIGHT))
-            self._blit_tiled(scene, self.floor_texture, pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
+            scene.fill((6, 8, 14))   # near-black base
+ 
+            # Ceiling — tile the texture, then heavily darken (looks enclosed)
+            scene.blit(self.ceiling_big, (0, 0))
+ 
+            # Floor — tile, then apply a distance-gradient darkening
+            self._blit_tiled(scene, self.floor_texture,
+                             pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
+            floor_grad = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+            for _fy in range(HALF_HEIGHT):
+                _ratio = _fy / HALF_HEIGHT          # 0=horizon, 1=bottom
+                _a     = int(100 + 130 * _ratio)
+                pygame.draw.line(floor_grad, (0, 0, 0, _a), (0, _fy), (WIDTH, _fy))
+            scene.blit(floor_grad, (0, HALF_HEIGHT))
 
             if self.room_tint_alpha > 0:
                 tint = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -1229,7 +1379,6 @@ class Game:
                 bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
             )
 
-            # ── Pre-blit temporal distortion ──────────────────────────────
             rewinding = self.time_rewind.rewinding
             scene = self.temporal_visuals.apply_pre_blit(
                 scene,
@@ -1238,7 +1387,6 @@ class Game:
                 rewinding,
             )
 
-            # ── Zoom / shake / roll ────────────────────────────────────────
             zoom        = 1.0 + self.screen_zoom
             zoom_pulse  = 1.0 + (self.cinematic_pulse * 0.02)
             target_w    = max(1, int(WIDTH  * zoom * zoom_pulse))
@@ -1256,7 +1404,6 @@ class Game:
             base_x = (WIDTH  - scaled.get_width())  // 2 + shake_x
             base_y = (HEIGHT - scaled.get_height()) // 2 + shake_y + int(self.bob_offset)
 
-            # ── Composite to screen ────────────────────────────────────────
             self.screen.fill((0, 0, 0))
 
             # Chromatic aberration
@@ -1271,7 +1418,6 @@ class Game:
 
             self.screen.blit(scaled, (base_x, base_y))
 
-            # ── Temporal post-blit fx (glitch bands, aberration, rewind) ──
             self.temporal_visuals.apply_post_blit(
                 self.screen,
                 self.time_dilation.active,
@@ -1279,7 +1425,6 @@ class Game:
                 rewinding,
             )
 
-            # ── Interior overlays ─────────────────────────────────────────
             if self.interior_grade:
                 self.screen.blit(self.interior_grade, (0, 0))
             if self.interior_vignette:
@@ -1307,10 +1452,8 @@ class Game:
                     scan.fill((*self.room_tint, a), pygame.Rect(0, y, WIDTH, 2))
                 self.screen.blit(scan, (0, 0))
 
-            # ── Fracture zone overlay ─────────────────────────────────────
             self.fracture_zones.draw_overlay(self.screen, self.ui_phase)
 
-            # ── Dilation: blue world-slow overlay ─────────────────────────
             if self.time_dilation.active and self.time_dilation.ramp > 0.05:
                 dil_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 dil_a    = int(30 * self.time_dilation.ramp)
@@ -1323,10 +1466,8 @@ class Game:
                 flash_surf.fill((180, 200, 255, self.time_rewind.flash_alpha))
                 self.screen.blit(flash_surf, (0, 0))
 
-            # ── Motion trail overlay ──────────────────────────────────────
             self.temporal_visuals.draw_dilation_trail_overlay(self.screen)
 
-            # ── HUD ───────────────────────────────────────────────────────
             pulse = self.hit_marker / 6 if self.hit_marker > 0 else 0.0
             draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
             draw_crosshair(self.screen, self.hit_marker > 0, pulse)
@@ -1340,6 +1481,7 @@ class Game:
             self.screen.blit(fps_text, (WIDTH - 150, 20))
 
             draw_weapon_info(self.screen, self.player)
+            self.grenade_system.draw_hud(self.screen, self.ui_phase)
             minimap_alpha = 130 + math.sin(self.ui_phase) * 25
             draw_minimap(
                 self.screen, self.world, self.player, self.enemies,
@@ -1354,7 +1496,6 @@ class Game:
                     self.room_timer / 90, abs(math.sin(self.ui_phase)),
                 )
 
-            # ── Temporal HUD ──────────────────────────────────────────────
             draw_temporal_hud(
                 self.screen,
                 self.time_dilation,
@@ -1376,7 +1517,6 @@ class Game:
             if self.state == "pause":
                 draw_pause(self.screen)
 
-        # ── Time-frozen overlay ───────────────────────────────────────────
         if self.time_frozen:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 100, 255, 60))
@@ -1384,7 +1524,6 @@ class Game:
 
         pygame.display.flip()
 
-    # ─────────────────────────────────────────────────────── main loop ────
 
     def run(self):
         running = True
@@ -1797,6 +1936,15 @@ class Player:
             target_speed += self.speed
         if keys[pygame.K_s]:
             target_speed -= self.speed
+        if keys[pygame.K_a]:
+            #strafe left: add speed in the direction 90 degrees counterclockwise from current angle
+            target_speed += self.speed * math.cos(self.angle - math.pi / 2)
+            target_speed += self.speed * math.sin(self.angle - math.pi / 2)
+        if keys[pygame.K_d]:
+            #strafe right: add speed in the direction 90 degrees clockwise from current angle
+            target_speed += self.speed * math.cos(self.angle + math.pi / 2)
+            target_speed += self.speed * math.sin(self.angle + math.pi / 2)
+            
 
                                                      
         scaled_target = target_speed * speed_scale
@@ -2471,74 +2619,131 @@ Filename: `fps_game/systems/grenades.py`
 
 ```python
 import math
+import random
 
 import pygame
 
-from core.settings import HALF_FOV, WIDTH, FOV, NUM_RAYS, SCALE, HALF_HEIGHT, TILE
+from core.settings import HALF_FOV, WIDTH, FOV, NUM_RAYS, HALF_HEIGHT, TILE
 from utils.math_utils import is_wall
+
+
+# ── Grenade type definitions ──────────────────────────────────────────────────
+GRENADE_DEFS = {
+    "space": {
+        "key":         "Z",
+        "label":       "VOID",
+        "color":       (80,  200, 255),   # cyan
+        "throw_speed": 14,
+        "fuse":        50,
+        "radius":      130,
+        "icon":        "◎",
+        "cooldown":    60,
+        "description": "Slows enemies in radius",
+    },
+    "smoke": {
+        "key":         "X",
+        "label":       "SMOKE",
+        "color":       (160, 170, 190),   # grey-blue
+        "throw_speed": 12,
+        "fuse":        30,
+        "radius":      150,
+        "icon":        "≋",
+        "cooldown":    80,
+        "description": "Obscures vision zone",
+    },
+    "stun": {
+        "key":         "C",
+        "label":       "STUN",
+        "color":       (255, 220,  50),   # amber
+        "throw_speed": 13,
+        "fuse":        35,
+        "radius":      140,
+        "icon":        "⚡",
+        "cooldown":    100,
+        "description": "Stuns enemies in radius",
+    },
+    "nuclear": {
+        "key":         "V",
+        "label":       "NOVA",
+        "color":       (255,  80,  60),   # red-orange
+        "throw_speed": 10,
+        "fuse":        65,
+        "radius":      250,
+        "icon":        "☢",
+        "cooldown":    180,
+        "description": "Massive damage + stun",
+    },
+}
+
+# Draw order for the HUD slots
+HUD_ORDER = ["space", "smoke", "stun", "nuclear"]
 
 
 class GrenadeSystem:
     def __init__(self):
         self.grenades = []
-        self.smokes = []
-        self.cooldowns = {
-            "space": 0,
-            "smoke": 0,
-            "stun": 0,
-            "nuclear": 0,
-        }
-        self.cooldown_max = {
-            "space": 60,
-            "smoke": 80,
-            "stun": 100,
-            "nuclear": 180,
-        }
+        self.smokes   = []
+        self.explosions = []          # visual-only explosion particles
+
+        self.cooldowns = {k: 0 for k in GRENADE_DEFS}
+
+        # Persistent fonts (created once)
+        self._font_label  = None
+        self._font_key    = None
+        self._font_desc   = None
+        self._fonts_ready = False
+
+    def _ensure_fonts(self):
+        if not self._fonts_ready:
+            self._font_label = pygame.font.SysFont("courier", 13, bold=True)
+            self._font_key   = pygame.font.SysFont("courier", 11, bold=True)
+            self._font_desc  = pygame.font.SysFont("courier", 10)
+            self._fonts_ready = True
+
+    # ── throwing ──────────────────────────────────────────────────────────────
 
     def try_throw(self, grenade_type, player):
-        if grenade_type not in self.cooldowns:
+        if grenade_type not in GRENADE_DEFS:
             return False
         if self.cooldowns[grenade_type] > 0:
             return False
 
-        self.cooldowns[grenade_type] = self.cooldown_max[grenade_type]
-        speed = 14
-        fuse = 45
-        radius = 120
-        if grenade_type == "smoke":
-            fuse = 30
-            radius = 140
-        elif grenade_type == "stun":
-            fuse = 35
-            radius = 140
-        elif grenade_type == "nuclear":
-            fuse = 60
-            radius = 240
+        defn = GRENADE_DEFS[grenade_type]
+        self.cooldowns[grenade_type] = defn["cooldown"]
 
-        self.grenades.append(
-            {
-                "type": grenade_type,
-                "x": player.x,
-                "y": player.y,
-                "angle": player.angle,
-                "speed": speed,
-                "fuse": fuse,
-                "radius": radius,
-            }
-        )
+        self.grenades.append({
+            "type":   grenade_type,
+            "x":      player.x,
+            "y":      player.y,
+            "angle":  player.angle,
+            "speed":  defn["throw_speed"],
+            "fuse":   defn["fuse"],
+            "radius": defn["radius"],
+            "age":    0,
+        })
         return True
+
+    # ── update ────────────────────────────────────────────────────────────────
 
     def update(self, world, doors, enemies, time_scale):
         events = {"shake": 0, "flash": 0, "chroma": 0, "zoom": 0}
 
-        for key in list(self.cooldowns.keys()):
+        # Tick cooldowns
+        for key in self.cooldowns:
             if self.cooldowns[key] > 0:
                 self.cooldowns[key] -= 1
 
+        # Update grenades
         for grenade in self.grenades[:]:
-            grenade["fuse"] -= 1
+            grenade["age"] += 1
+
+            # Fuse ticks with time_scale (so dilation slows grenades too)
+            effective_fuse_drain = max(0.1, time_scale)
+            grenade["fuse"] -= effective_fuse_drain
+
             if grenade["fuse"] <= 0:
                 self._explode(grenade, enemies, events)
+                pygame.mixer.Sound.play(pygame.mixer.Sound("fps_game/assets/sounds/effects/explosion.mp3"))
                 self.grenades.remove(grenade)
                 continue
 
@@ -2547,90 +2752,309 @@ class GrenadeSystem:
 
             nx = grenade["x"] + math.cos(grenade["angle"]) * grenade["speed"] * time_scale
             ny = grenade["y"] + math.sin(grenade["angle"]) * grenade["speed"] * time_scale
+
             if is_wall(nx, ny, world, TILE, doors):
                 grenade["speed"] = 0
-                grenade["fuse"] = min(grenade["fuse"], 15)
+                grenade["fuse"]  = min(grenade["fuse"], 15)
             else:
                 grenade["x"] = nx
                 grenade["y"] = ny
 
+            # Decelerate (friction)
+            grenade["speed"] = max(0.0, grenade["speed"] - 0.4 * time_scale)
+
+        # Update smoke clouds
         for smoke in self.smokes[:]:
             smoke["timer"] -= 1
+            smoke["radius"] = min(smoke["max_radius"],
+                                  smoke["radius"] + 0.8)   # expand over time
             if smoke["timer"] <= 0:
                 self.smokes.remove(smoke)
 
+        # Update explosion particles
+        for p in self.explosions[:]:
+            p["x"]    += p["vx"]
+            p["y"]    += p["vy"]
+            p["life"] -= 1
+            p["vx"]   *= 0.92
+            p["vy"]   *= 0.92
+            if p["life"] <= 0:
+                self.explosions.remove(p)
+
         return events
 
+    # ── explosion logic ───────────────────────────────────────────────────────
+
     def _explode(self, grenade, enemies, events):
-        gtype = grenade["type"]
+        gtype  = grenade["type"]
         radius = grenade["radius"]
+        defn   = GRENADE_DEFS[gtype]
+        color  = defn["color"]
+
+        # Spawn explosion particles
+        particle_count = {"space": 20, "smoke": 8, "stun": 28, "nuclear": 50}
+        for _ in range(particle_count.get(gtype, 16)):
+            angle = random.uniform(0, math.pi * 2)
+            speed = random.uniform(1.5, 6.0)
+            self.explosions.append({
+                "x":    grenade["x"],
+                "y":    grenade["y"],
+                "vx":   math.cos(angle) * speed,
+                "vy":   math.sin(angle) * speed,
+                "life": random.randint(18, 50),
+                "max_life": 50,
+                "color": color,
+                "size": random.randint(2, 6),
+            })
+
+        # Smoke leaves a persistent cloud
         if gtype == "smoke":
-            self.smokes.append({"x": grenade["x"], "y": grenade["y"], "radius": radius, "timer": 160})
+            self.smokes.append({
+                "x":          grenade["x"],
+                "y":          grenade["y"],
+                "radius":     40,
+                "max_radius": radius,
+                "timer":      180,
+                "color":      color,
+            })
             events["flash"] = max(events["flash"], 2)
             return
 
+        # Damage + status effects for all other types
         for enemy in enemies:
-            dx = enemy["x"] - grenade["x"]
-            dy = enemy["y"] - grenade["y"]
+            dx   = enemy["x"] - grenade["x"]
+            dy   = enemy["y"] - grenade["y"]
             dist = math.hypot(dx, dy)
+
             if dist <= radius and enemy["alive"]:
-                falloff = max(0.2, 1 - dist / radius)
+                falloff = max(0.15, 1.0 - dist / radius)
+
                 if gtype == "space":
-                    enemy["health"] -= int(40 * falloff)
-                    enemy["slow_timer"] = max(enemy.get("slow_timer", 0), 90)
+                    enemy["health"]    -= int(40 * falloff)
+                    enemy["slow_timer"] = max(enemy.get("slow_timer", 0), 100)
+
                 elif gtype == "stun":
-                    enemy["health"] -= int(15 * falloff)
-                    enemy["stun_timer"] = max(enemy.get("stun_timer", 0), 90)
+                    enemy["health"]    -= int(20 * falloff)
+                    enemy["stun_timer"] = max(enemy.get("stun_timer", 0), 100)
+
                 elif gtype == "nuclear":
-                    enemy["health"] -= int(200 * falloff)
-                    enemy["stun_timer"] = max(enemy.get("stun_timer", 0), 120)
+                    enemy["health"]    -= int(220 * falloff)
+                    enemy["stun_timer"] = max(enemy.get("stun_timer", 0), 130)
+
                 if enemy["health"] <= 0:
                     enemy["alive"] = False
 
+        # Screen feedback
         if gtype == "space":
+            events["shake"] = max(events["shake"], 7)
             events["flash"] = max(events["flash"], 4)
-            events["chroma"] = max(events["chroma"], 6)
-            events["shake"] = max(events["shake"], 6)
+            events["chroma"] = max(events["chroma"], 7)
         elif gtype == "stun":
-            events["flash"] = max(events["flash"], 3)
-            events["chroma"] = max(events["chroma"], 4)
+            events["flash"] = max(events["flash"], 5)
+            events["chroma"] = max(events["chroma"], 5)
+            events["shake"] = max(events["shake"], 5)
         elif gtype == "nuclear":
-            events["flash"] = max(events["flash"], 10)
-            events["chroma"] = max(events["chroma"], 12)
-            events["shake"] = max(events["shake"], 16)
-            events["zoom"] = max(events["zoom"], 0.08)
+            events["shake"] = max(events["shake"], 18)
+            events["flash"] = max(events["flash"], 12)
+            events["chroma"] = max(events["chroma"], 14)
+            events["zoom"]  = max(events["zoom"], 0.10)
+
+    # ── drawing ───────────────────────────────────────────────────────────────
 
     def draw_grenades(self, screen, player, depth_buffer, anim_time=0.0):
-        for grenade in self.grenades:
-            self._draw_projected(screen, player, depth_buffer, grenade["x"], grenade["y"], 20, (240, 240, 240))
+        """Draw in-flight grenades, smoke clouds, and explosion particles."""
 
+        # Explosion particles (2-D overlay — always visible, no depth test)
+        for p in self.explosions:
+            ratio = p["life"] / p["max_life"]
+            alpha = int(220 * ratio)
+            r, g, b = p["color"]
+            size  = max(1, int(p["size"] * ratio))
+            surf  = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (r, g, b, alpha), (size, size), size)
+            # Project particle into 3-D view
+            self._draw_projected(screen, player, depth_buffer,
+                                 p["x"], p["y"], size * 2, p["color"],
+                                 alpha=alpha, depth_scale=0.5)
+
+        # Smoke clouds
         for smoke in self.smokes:
-            radius = smoke["radius"]
-            pulse = 1 + 0.15 * math.sin(anim_time * 2)
-            self._draw_projected(screen, player, depth_buffer, smoke["x"], smoke["y"], radius * pulse, (120, 140, 170), alpha=80)
+            pulse = 1.0 + 0.12 * math.sin(anim_time * 1.8)
+            draw_r = smoke["radius"] * pulse
+            self._draw_projected(screen, player, depth_buffer,
+                                 smoke["x"], smoke["y"],
+                                 draw_r, smoke["color"], alpha=65)
 
-    def _draw_projected(self, screen, player, depth_buffer, x, y, size_base, color, alpha=255):
-        dx = x - player.x
-        dy = y - player.y
+        # In-flight grenades
+        for grenade in self.grenades:
+            defn   = GRENADE_DEFS[grenade["type"]]
+            color  = defn["color"]
+
+            # Fuse urgency — flash faster as fuse expires
+            fuse_ratio = max(0.0, grenade["fuse"] / defn["fuse"])
+            flash_freq = 4.0 + (1.0 - fuse_ratio) * 10.0
+            visible    = (math.sin(anim_time * flash_freq) > -0.3)
+            if not visible:
+                continue
+
+            # Size pulses as fuse runs low
+            base_size = 14 + int((1.0 - fuse_ratio) * 10)
+            self._draw_projected(screen, player, depth_buffer,
+                                 grenade["x"], grenade["y"],
+                                 base_size, color, alpha=230)
+
+    def _draw_projected(self, screen, player, depth_buffer,
+                        wx, wy, size_base, color, alpha=255, depth_scale=1.0):
+        """Billboard-project a world-space circle into screen space."""
+        dx   = wx - player.x
+        dy   = wy - player.y
         dist = math.hypot(dx, dy)
         if dist < 1:
             return
+
         theta = math.atan2(dy, dx)
         delta = (theta - player.angle) % (2 * math.pi)
         if delta > math.pi:
             delta -= 2 * math.pi
 
-        if -HALF_FOV < delta < HALF_FOV:
-            screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
-            size = min(2000 / (dist + 0.0001), size_base)
-            x2 = screen_x - size // 2
-            y2 = HALF_HEIGHT - size // 2
-            ray_index = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
-            if 0 <= ray_index < len(depth_buffer):
-                if dist < depth_buffer[ray_index]:
-                    surf = pygame.Surface((int(size), int(size)), pygame.SRCALPHA)
-                    surf.fill((*color, alpha))
-                    screen.blit(surf, (x2, y2))
+        if not (-HALF_FOV < delta < HALF_FOV):
+            return
+
+        screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
+        size     = min(2000 / (dist + 0.0001), size_base)
+        sx       = screen_x - size // 2
+        sy       = HALF_HEIGHT - size // 2
+
+        ray_index = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
+        if ray_index >= len(depth_buffer):
+            return
+        if dist * depth_scale >= depth_buffer[ray_index]:
+            return
+
+        isize = max(1, int(size))
+        surf  = pygame.Surface((isize, isize), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*color, min(255, alpha)),
+                           (isize // 2, isize // 2), isize // 2)
+        screen.blit(surf, (int(sx), int(sy)))
+
+
+    def draw_hud(self, screen, ui_phase):
+        """
+        Four grenade slots in the bottom-left corner.
+        Each slot shows:
+          • Icon + label
+          • Cooldown bar (fills left→right as it recharges)
+          • [KEY] binding
+          • Dim overlay when on cooldown
+        """
+        self._ensure_fonts()
+
+        SLOT_W    = 72
+        SLOT_H    = 58
+        SLOT_PAD  = 6
+        MARGIN_X  = 18
+        MARGIN_Y  = 110          # from bottom of screen
+        HEIGHT = screen.get_height()
+
+        total_w = len(HUD_ORDER) * (SLOT_W + SLOT_PAD) - SLOT_PAD
+        start_x = MARGIN_X
+        start_y = HEIGHT - MARGIN_Y - SLOT_H
+
+        pulse = 0.5 + 0.5 * math.sin(ui_phase * 2.2)
+
+        for i, gtype in enumerate(HUD_ORDER):
+            defn   = GRENADE_DEFS[gtype]
+            cd     = self.cooldowns[gtype]
+            cd_max = defn["cooldown"]
+            ready  = (cd == 0)
+
+            sx = start_x + i * (SLOT_W + SLOT_PAD)
+            sy = start_y
+
+            color  = defn["color"]
+            dim_color = tuple(max(0, c // 3) for c in color)
+
+            # ── Slot background ───────────────────────────────────────────
+            bg = pygame.Surface((SLOT_W, SLOT_H), pygame.SRCALPHA)
+            bg_alpha = 180 if ready else 100
+            bg.fill((8, 12, 20, bg_alpha))
+            pygame.draw.rect(bg, (*( color if ready else dim_color ), 160),
+                             bg.get_rect(), 1, border_radius=4)
+            screen.blit(bg, (sx, sy))
+
+            # ── Icon ──────────────────────────────────────────────────────
+            icon_font = pygame.font.SysFont("segoeui", 20)
+            icon_col  = color if ready else dim_color
+            icon_surf = icon_font.render(defn["icon"], True, icon_col)
+            if ready:
+                # Subtle glow pulse on ready icons
+                icon_surf.set_alpha(200 + int(55 * pulse))
+            else:
+                icon_surf.set_alpha(130)
+            screen.blit(icon_surf,
+                        (sx + SLOT_W // 2 - icon_surf.get_width() // 2,
+                         sy + 5))
+
+            # ── Label ─────────────────────────────────────────────────────
+            label_col  = color if ready else dim_color
+            label_surf = self._font_label.render(defn["label"], True, label_col)
+            label_surf.set_alpha(220 if ready else 120)
+            screen.blit(label_surf,
+                        (sx + SLOT_W // 2 - label_surf.get_width() // 2,
+                         sy + 27))
+
+            # ── Cooldown bar ──────────────────────────────────────────────
+            bar_x = sx + 4
+            bar_y = sy + SLOT_H - 14
+            bar_w = SLOT_W - 8
+            bar_h = 5
+
+            pygame.draw.rect(screen, (20, 28, 40), (bar_x, bar_y, bar_w, bar_h))
+
+            if ready:
+                fill_w = bar_w
+                bar_col = color
+            else:
+                ratio  = 1.0 - cd / cd_max
+                fill_w = int(bar_w * ratio)
+                bar_col = tuple(max(0, c - 60) for c in color)
+
+            if fill_w > 0:
+                pygame.draw.rect(screen, bar_col, (bar_x, bar_y, fill_w, bar_h))
+
+            pygame.draw.rect(screen, (*( color if ready else dim_color ), 120),
+                             (bar_x, bar_y, bar_w, bar_h), 1)
+
+            # ── Key binding ───────────────────────────────────────────────
+            key_col  = (200, 200, 200) if ready else (90, 90, 90)
+            key_surf = self._font_key.render(f"[{defn['key']}]", True, key_col)
+            screen.blit(key_surf,
+                        (sx + SLOT_W // 2 - key_surf.get_width() // 2,
+                         sy + SLOT_H - 12))
+
+            # ── Cooldown overlay + remaining time ─────────────────────────
+            if not ready:
+                overlay = pygame.Surface((SLOT_W, SLOT_H), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, 70))
+                screen.blit(overlay, (sx, sy))
+
+                secs_left = cd / 60.0
+                cd_surf   = self._font_label.render(
+                    f"{secs_left:.1f}s", True, (180, 180, 180)
+                )
+                cd_surf.set_alpha(200)
+                screen.blit(cd_surf,
+                            (sx + SLOT_W // 2 - cd_surf.get_width() // 2,
+                             sy + SLOT_H // 2 - cd_surf.get_height() // 2))
+
+            # ── "READY" flash when cooldown just expired ──────────────────
+            if ready and cd_max > 0:
+                # We can't detect the exact frame cd hit 0, but we can flash
+                # for a brief window by checking if fill is full and pulsing
+                if pulse > 0.85:
+                    glow = pygame.Surface((SLOT_W, SLOT_H), pygame.SRCALPHA)
+                    glow.fill((*color, 18))
+                    screen.blit(glow, (sx, sy))
 ```
 
 ## fps_game/systems/menu.py
@@ -2869,7 +3293,12 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                 depth *= math.cos(player.angle - cur_angle)
                 depth_wall = depth
                 proj_height = (TILE * 300) / (depth + 0.0001)
-                color = 240 / (1 + depth * depth * 0.00012)
+
+                # Sharp distance falloff — close walls bright, far walls very dark.
+                # This is critical for the "enclosed corridor" feel.
+                brightness = 240 / (1 + depth * depth * 0.00013)
+                brightness = max(18, min(240, brightness))
+
                 if hit_door and door_texture is not None:
                     tex = door_texture
                 elif textures:
@@ -2877,29 +3306,37 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                     tex = textures.get(key)
                 else:
                     tex = None
-                
-                # Calculate column position and width to properly fill the screen
-                col_x = ray * WIDTH / NUM_RAYS
+
+                col_x     = ray * WIDTH / NUM_RAYS
                 col_width = (ray + 1) * WIDTH / NUM_RAYS - col_x
-                
-                if tex is not None:
-                    if tex:
-                        tex_w = tex.get_width()
-                        tex_h = tex.get_height()
-                        tex_x = int((x % TILE) / TILE * tex_w)
-                        tex_x = max(0, min(tex_w - 1, tex_x))
-                        column = tex.subsurface((tex_x, 0, 1, tex_h))
-                        column = pygame.transform.scale(column, (int(col_width), int(proj_height)))
-                        shade = max(35, min(255, int(color)))
-                        column.fill((shade, shade, shade), special_flags=pygame.BLEND_MULT)
-                        column.fill((0, 10, 20), special_flags=pygame.BLEND_RGB_ADD)
-                        screen.blit(column, (int(col_x), HALF_HEIGHT - int(proj_height) // 2))
+
+                if tex is not None and tex:
+                    tex_w  = tex.get_width()
+                    tex_h  = tex.get_height()
+                    tex_x  = int((x % TILE) / TILE * tex_w)
+                    tex_x  = max(0, min(tex_w - 1, tex_x))
+                    column = tex.subsurface((tex_x, 0, 1, tex_h))
+                    column = pygame.transform.scale(column, (int(col_width), int(proj_height)))
+
+                    # Cool steel tint: push RGB toward dark blue-grey
+                    shade = max(18, min(255, int(brightness)))
+                    r_mul = max(0, min(255, int(shade * 0.72)))
+                    g_mul = max(0, min(255, int(shade * 0.85)))
+                    b_mul = max(0, min(255, int(shade * 1.10)))
+                    column.fill((r_mul, g_mul, b_mul), special_flags=pygame.BLEND_MULT)
+                    column.fill((0, 6, 16), special_flags=pygame.BLEND_RGB_ADD)
+
+                    screen.blit(column, (int(col_x), HALF_HEIGHT - int(proj_height) // 2))
                 else:
-                    cool = (int(color * 0.9), int(color * 0.95), int(color))
+                    # Fallback: dark cool-steel colour
+                    r = max(0, int(brightness * 0.55))
+                    g = max(0, int(brightness * 0.68))
+                    b = max(0, int(brightness * 0.88))
                     pygame.draw.rect(
                         screen,
-                        cool,
-                        (int(col_x), HALF_HEIGHT - int(proj_height) // 2, int(col_width), int(proj_height)),
+                        (r, g, b),
+                        (int(col_x), HALF_HEIGHT - int(proj_height) // 2,
+                         int(col_width), int(proj_height)),
                     )
                 break
 
@@ -3054,18 +3491,20 @@ class TimeDilation:
                                                                                
 class TimeRewind:
     def __init__(self):
-        self._history: list[dict] = []                                 
-        self._tick   = 0                                                 
+        self._history: list[dict] = []        # oldest → newest
+        self._tick   = 0
         self._sub    = max(1, 60 // REWIND_FPS)
-
-        self.cooldown        = 0                                       
+ 
+        self.cooldown        = 0
         self.cooldown_max    = int(REWIND_COOLDOWN_SECS * 60)
         self.rewinding       = False
-        self.rewind_frames   = 0                                            
-        self._restore_snap   = None                                
-        self.flash_alpha     = 0                                        
-
+        self._playback       = []             # reversed slice we walk through
+        self._playback_idx   = 0             # current position in _playback
+        self.flash_alpha     = 0
+ 
+ 
     def record(self, player, enemies):
+        """Called every frame during normal play to build the history buffer."""
         self._tick += 1
         if self._tick % self._sub != 0:
             return
@@ -3073,66 +3512,76 @@ class TimeRewind:
         self._history.append(snap)
         if len(self._history) > REWIND_MAX_FRAMES:
             self._history.pop(0)
-
+ 
+ 
     def can_rewind(self):
         return self.cooldown <= 0 and len(self._history) >= 2 and not self.rewinding
-
+ 
     def trigger(self):
         if not self.can_rewind():
             return False
-                                              
-        self._restore_snap = self._history[0]
+ 
+        # Reverse the history so index 0 = most-recent, last = oldest.
+        # We'll step through this one frame at a time during update().
+        self._playback     = list(reversed(self._history))
+        self._playback_idx = 0
         self._history.clear()
-        self.rewinding     = True
-        self.rewind_frames = REWIND_DURATION_FRAMES
-        self.cooldown      = self.cooldown_max
-        self.flash_alpha   = 220
+ 
+        self.rewinding   = True
+        self.cooldown    = self.cooldown_max
+        self.flash_alpha = 220
         return True
-
+ 
+ 
     def update(self, player, enemies):
         if self.cooldown > 0:
             self.cooldown -= 1
-
+ 
         if self.flash_alpha > 0:
-            self.flash_alpha = max(0, self.flash_alpha - 12)
-
+            self.flash_alpha = max(0, self.flash_alpha - 10)
+ 
         if not self.rewinding:
             return False
-
-        self.rewind_frames -= 1
-        if self.rewind_frames <= 0:
-            self._apply(player, enemies)
-            self.rewinding = False
-
+ 
+        # Apply the current playback frame
+        if self._playback_idx < len(self._playback):
+            snap = self._playback[self._playback_idx]
+            self._apply(player, enemies, snap)
+            self._playback_idx += 1
+        else:
+            # Reached the end of recorded history — rewind complete
+            self.rewinding     = False
+            self._playback     = []
+            self._playback_idx = 0
+ 
         return True
-
-    def _apply(self, player, enemies):
-        snap = self._restore_snap
-        if snap is None:
-            return
+ 
+ 
+    def _apply(self, player, enemies, snap):
+        """Write one history snapshot onto the live player and enemies."""
         p = snap["p"]
-        player.x                  = p["x"]
-        player.y                  = p["y"]
-        player.angle              = p["angle"]
-        player.health             = p["health"]
+        player.x                    = p["x"]
+        player.y                    = p["y"]
+        player.angle                = p["angle"]
+        player.health               = p["health"]
         player.invincibility_frames = p["inv"]
-        player.current_speed      = p["speed"]
-
+        player.current_speed        = p["speed"]
+ 
         for i, estate in enumerate(snap["e"]):
             if i < len(enemies):
                 e = enemies[i]
-                e["x"]          = estate["x"]
-                e["y"]          = estate["y"]
-                e["health"]     = estate["health"]
-                e["alive"]      = estate["alive"]
-                e["stun_timer"] = estate["stun"]
-                e["slow_timer"] = estate["slow"]
-                e["death_timer"]= estate["death"]
-
+                e["x"]           = estate["x"]
+                e["y"]           = estate["y"]
+                e["health"]      = estate["health"]
+                e["alive"]       = estate["alive"]
+                e["stun_timer"]  = estate["stun"]
+                e["slow_timer"]  = estate["slow"]
+                e["death_timer"] = estate["death"]
+ 
+ 
     @property
     def cooldown_ratio(self):
         return 1.0 - self.cooldown / self.cooldown_max if self.cooldown_max else 1.0
-
 
                                                                                
                                  

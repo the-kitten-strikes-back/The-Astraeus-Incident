@@ -98,22 +98,21 @@ class Game:
         self.floor_texture   = self.floor_textures[0]
         self.ceiling_texture = self.ceiling_textures[0]
         (
-            self.interior_ceiling_overlay,
             self.interior_floor_overlay,
             self.interior_grade,
             self.interior_vignette,
         ) = self._build_interior_layers()
 
+        self.ceiling_big = self._build_ceiling_texture()
+
         self.weapon_system  = WeaponSystem(self.weapon_image)
         self.grenade_system = GrenadeSystem()
 
-        # ── Temporal systems ────────────────────────────────────────────────
         self.time_dilation  = TimeDilation()
         self.time_rewind    = TimeRewind()
         self.temporal_echo  = TemporalEcho()
         self.fracture_zones = FractureZones()
         self.temporal_visuals = TemporalVisuals()
-        # ────────────────────────────────────────────────────────────────────
 
         self.level_paths = sorted(glob.glob(f"{LEVELS_DIR}/level*.txt"))
         if not self.level_paths:
@@ -338,8 +337,6 @@ class Game:
         self.load_current_level()
         self.save_game()
 
-    # ─────────────────────────────────────────────────────── asset loaders ──
-
     def _load_wall_textures(self):
         textures = {}
         for key, path in WALL_TEXTURE_FILES.items():
@@ -347,12 +344,101 @@ class Game:
                 img = pygame.image.load(path).convert()
             except FileNotFoundError:
                 img = pygame.Surface((64, 64))
-                base = 60 + (ord(key) * 7) % 120
-                img.fill((base, base, base))
-                for i in range(0, 64, 8):
-                    pygame.draw.line(img, (base + 20, base + 20, base + 30), (i, 0), (i, 64))
+                palette = {
+                    "#": (28, 36, 52),
+                    "A": (22, 34, 58),
+                    "B": (34, 28, 50),
+                    "C": (22, 40, 44),
+                    "D": (38, 32, 26),
+                }
+                base = palette.get(key, (28, 36, 52))
+                img.fill(base)
+                seam = tuple(min(255, c + 22) for c in base)
+                for y in range(0, 64, 16):
+                    pygame.draw.line(img, seam, (0, y), (64, y), 1)
+                rib = tuple(min(255, c + 35) for c in base)
+                for x in range(0, 64, 32):
+                    pygame.draw.line(img, rib, (x, 0), (x, 64), 2)
+                rivet = tuple(min(255, c + 60) for c in base)
+                for ry in range(0, 64, 16):
+                    for rx in range(0, 64, 32):
+                        pygame.draw.circle(img, rivet, (rx + 1, ry + 1), 2)
+                hi = tuple(min(255, c + 9) for c in base)
+                for y in range(1, 64, 16):
+                    pygame.draw.line(img, hi, (0, y), (64, y), 1)
             textures[key] = pygame.transform.scale(img, (64, 64))
         return textures
+
+    def _build_ceiling_texture(self, room_tint=None, room_tint_alpha=0):
+        surf = pygame.Surface((WIDTH, HALF_HEIGHT))
+        surf.fill((8, 10, 18))
+
+        panel_w = WIDTH // 6
+        panel_h = HALF_HEIGHT // 3
+
+        for row in range(4):
+            for col in range(7):
+                px = col * panel_w
+                py = row * panel_h
+                variant = (row + col) % len(self.ceiling_textures)
+                tex = self.ceiling_textures[variant]
+                scaled = pygame.transform.smoothscale(tex, (panel_w, panel_h))
+                surf.blit(scaled, (px, py))
+                seam_color = (30, 40, 60)
+                pygame.draw.rect(surf, seam_color,
+                                 pygame.Rect(px, py, panel_w, panel_h), 1)
+
+        rib_color = (40, 55, 80)
+        for y in range(0, HALF_HEIGHT, panel_h):
+            pygame.draw.line(surf, rib_color, (0, y), (WIDTH, y), 2)
+        for x in range(0, WIDTH, panel_w):
+            pygame.draw.line(surf, rib_color, (x, 0), (x, HALF_HEIGHT), 2)
+
+        for col in range(6):
+            for row in range(3):
+                if (row + col) % 3 != 0:
+                    continue
+                bx = col * panel_w + panel_w // 4
+                by = row * panel_h + panel_h // 3
+                bw = panel_w // 2
+                bh = 5
+                bar_color = (210, 215, 185)
+                if room_tint and room_tint_alpha > 0:
+                    rt = room_tint
+                    mix = room_tint_alpha / 255
+                    bar_color = (
+                        int(bar_color[0] * (1 - mix) + rt[0] * mix),
+                        int(bar_color[1] * (1 - mix) + rt[1] * mix),
+                        int(bar_color[2] * (1 - mix) + rt[2] * mix),
+                    )
+                glow_surf = pygame.Surface((bw + 16, bh + 10), pygame.SRCALPHA)
+                glow_surf.fill((80, 90, 60, 40))
+                surf.blit(glow_surf, (bx - 8, by - 5))
+                pygame.draw.rect(surf, bar_color, (bx, by, bw, bh))
+                pygame.draw.rect(surf, (50, 55, 40), (bx, by + bh, bw, 3))
+
+        rivet_color = (60, 75, 100)
+        for y in range(0, HALF_HEIGHT, panel_h):
+            for x in range(0, WIDTH, panel_w):
+                pygame.draw.circle(surf, rivet_color, (x, y), 3)
+
+        if room_tint and room_tint_alpha > 0:
+            tint_surf = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+            tint_surf.fill((*room_tint, room_tint_alpha // 2))
+            surf.blit(tint_surf, (0, 0))
+
+        gradient = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+        for y in range(HALF_HEIGHT):
+            ratio = y / HALF_HEIGHT
+            alpha = int(180 * (1.0 - ratio))
+            pygame.draw.line(gradient, (0, 0, 0, alpha), (0, y), (WIDTH, y))
+        surf.blit(gradient, (0, 0))
+
+        tint = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+        tint.fill((10, 20, 40, 35))
+        surf.blit(tint, (0, 0))
+
+        return surf
 
     def _load_enemy_sprites(self):
         sprites = {}
@@ -402,54 +488,73 @@ class Game:
                 img = pygame.image.load(path).convert()
             except FileNotFoundError:
                 img = pygame.Surface((64, 64))
-                base = 40 + (idx * 30) % 120
+
                 if kind == "ceiling":
-                    img.fill((base, base + 10, base + 20))
-                    for y in range(0, 64, 8):
-                        pygame.draw.line(img, (base + 20, base + 30, base + 40), (0, y), (64, y), 1)
-                else:
-                    img.fill((base + 10, base + 10, base))
-                    for x in range(0, 64, 8):
-                        pygame.draw.line(img, (base + 30, base + 20, base + 10), (x, 0), (x, 64), 1)
+                    bases = [(12, 16, 24), (10, 14, 22), (16, 18, 28)]
+                    base  = bases[idx % len(bases)]
+                    img.fill(base)
+                    grid = tuple(min(255, c + 20) for c in base)
                     for y in range(0, 64, 16):
-                        pygame.draw.line(img, (base + 40, base + 30, base + 20), (0, y), (64, y), 1)
+                        pygame.draw.line(img, grid, (0, y), (64, y), 1)
+                    for x in range(0, 64, 16):
+                        pygame.draw.line(img, grid, (x, 0), (x, 64), 1)
+                    strip_x = [8, 40, 24][idx % 3]
+                    pygame.draw.rect(img, (200, 210, 180), (strip_x, 26, 16, 4))
+                    pygame.draw.rect(img, (55, 60, 45),    (strip_x - 2, 30, 20, 3))
+
+                else:
+                    bases = [(18, 22, 26), (20, 18, 24), (16, 24, 28)]
+                    base  = bases[idx % len(bases)]
+                    img.fill(base)
+                    grid = tuple(min(255, c + 30) for c in base)
+                    for y in range(0, 64, 16):
+                        pygame.draw.line(img, grid, (0, y), (64, y), 1)
+                    for x in range(0, 64, 16):
+                        pygame.draw.line(img, grid, (x, 0), (x, 64), 1)
+                    sub = tuple(min(255, c + 10) for c in base)
+                    for y in range(0, 64, 8):
+                        pygame.draw.line(img, sub, (0, y), (64, y), 1)
+                    if idx == 1:
+                        pygame.draw.line(img, (55, 45, 15), (0, 0),  (64, 64), 2)
+                        pygame.draw.line(img, (55, 45, 15), (0, 16), (48, 64), 1)
+                    hi = tuple(min(255, c + 7) for c in base)
+                    pygame.draw.rect(img, hi, (2, 2, 28, 28))
+
             textures.append(pygame.transform.scale(img, (64, 64)))
         return textures
 
     def _build_interior_layers(self):
-        ceiling = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-        ceiling.fill((0, 0, 0, 40))
-        panel_color = (40, 60, 80, 60)
-        light_color = (120, 170, 210, 80)
-        for x in range(0, WIDTH, 96):
-            pygame.draw.line(ceiling, panel_color, (x, 0), (x, HALF_HEIGHT), 1)
-        for y in range(0, HALF_HEIGHT, 64):
-            pygame.draw.line(ceiling, panel_color, (0, y), (WIDTH, y), 1)
-        for x in range(48, WIDTH, 192):
-            pygame.draw.rect(ceiling, light_color, (x, 12, 70, 6))
-            pygame.draw.rect(ceiling, (70, 110, 150, 120), (x, 20, 70, 2))
-
         floor = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-        floor.fill((0, 0, 0, 20))
-        grid = (30, 50, 70, 50)
-        for x in range(0, WIDTH, 48):
-            pygame.draw.line(floor, grid, (x, 0), (x, HALF_HEIGHT), 1)
-        for y in range(0, HALF_HEIGHT, 48):
-            pygame.draw.line(floor, grid, (0, y), (WIDTH, y), 1)
-        pygame.draw.rect(floor, (60, 100, 140, 80), (24, HALF_HEIGHT - 70, 160, 36), 2)
-        pygame.draw.rect(floor, (60, 100, 140, 80), (WIDTH - 210, HALF_HEIGHT - 90, 180, 44), 2)
+        for y in range(HALF_HEIGHT):
+            ratio = y / HALF_HEIGHT
+            alpha = int(190 * ratio)
+            pygame.draw.line(floor, (3, 5, 10, alpha), (0, y), (WIDTH, y))
+        grid_col = (40, 180, 220, 25)
+        for x in range(0, WIDTH + 1, 80):
+            pygame.draw.line(floor, grid_col, (x, 0), (WIDTH // 2, HALF_HEIGHT - 1), 1)
+        for y in range(0, HALF_HEIGHT, 60):
+            pygame.draw.line(floor, (50, 80, 110, 18), (0, y), (WIDTH, y), 1)
+        cc = (30, 80, 120, 65)
+        pygame.draw.rect(floor, cc, (0, HALF_HEIGHT - 80, 200, 80), 2)
+        for i in range(5):
+            pygame.draw.line(floor, cc, (8, HALF_HEIGHT - 70 + i * 14),
+                             (192, HALF_HEIGHT - 70 + i * 14), 1)
+        pygame.draw.rect(floor, cc, (WIDTH - 200, HALF_HEIGHT - 100, 200, 100), 2)
+        for i in range(6):
+            pygame.draw.line(floor, cc,
+                             (WIDTH - 192, HALF_HEIGHT - 90 + i * 14),
+                             (WIDTH - 8,   HALF_HEIGHT - 90 + i * 14), 1)
 
         grade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        grade.fill((10, 20, 30, 35))
-        pygame.draw.rect(grade, (0, 10, 20, 45), (0, 0, WIDTH, HALF_HEIGHT))
+        grade.fill((4, 8, 18, 26))
+        pygame.draw.rect(grade, (0, 4, 12, 38), (0, 0, WIDTH, HALF_HEIGHT))
 
         vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, 90), vignette.get_rect(), border_radius=18)
-        pygame.draw.rect(vignette, (0, 0, 0, 0), pygame.Rect(40, 28, WIDTH - 80, HEIGHT - 56))
+        pygame.draw.rect(vignette, (0, 0, 0, 115), vignette.get_rect())
+        inner = pygame.Rect(55, 38, WIDTH - 110, HEIGHT - 76)
+        pygame.draw.rect(vignette, (0, 0, 0, 0), inner)
 
-        return ceiling, floor, grade, vignette
-
-    # ─────────────────────────────────────────────────────── level / save ──
+        return floor, grade, vignette
 
     def load_current_level(self):
         self.world, self.enemies, self.health_packs, spawn, self.rooms, self.doors = load_level(
@@ -460,12 +565,12 @@ class Game:
             self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
         if self.ceiling_textures:
             self.ceiling_texture = self.ceiling_textures[self.current_level_index % len(self.ceiling_textures)]
+        self.ceiling_big = self._build_ceiling_texture()
         self.current_room     = ""
         self.current_room_key = ""
         self.room_tint        = (0, 0, 0)
         self.room_tint_alpha  = 0
         self.room_scan        = False
-        # Reset temporal state on level change
         self.time_rewind._history.clear()
         self.temporal_echo._recording.clear()
         self.fracture_zones.leave_room()
@@ -519,8 +624,6 @@ class Game:
                 json.dump(data, f, indent=2)
         except OSError:
             pass
-
-    # ─────────────────────────────────────────────────────── helpers ──────
 
     def _blit_tiled(self, target, texture, rect):
         tx = texture.get_width()
@@ -584,7 +687,6 @@ class Game:
         self.score                = 0
         self.kills                = 0
         self.ending_choice        = ""
-        # reset temporal
         self.time_dilation  = TimeDilation()
         self.time_rewind    = TimeRewind()
         self.temporal_echo  = TemporalEcho()
@@ -638,8 +740,6 @@ class Game:
             except pygame.error as e:
                 print(f"Failed to load music {music_path}: {e}")
 
-    # ─────────────────────────────────────────────────────── events ───────
-
     def handle_events(self):
         pygame.event.pump()
 
@@ -681,7 +781,6 @@ class Game:
                         self.toggle_fullscreen()
                     if event.key == pygame.K_e:
                         self._toggle_nearby_door()
-                    # Grenades
                     if event.key == pygame.K_z:
                         self.grenade_system.try_throw("space",   self.player)
                     if event.key == pygame.K_x:
@@ -690,15 +789,13 @@ class Game:
                         self.grenade_system.try_throw("stun",    self.player)
                     if event.key == pygame.K_v:
                         self.grenade_system.try_throw("nuclear", self.player)
-                    # ── Temporal abilities ──────────────────────────────────
                     if event.key == pygame.K_q:
                         self.time_dilation.toggle()
                         if self.time_dilation.active:
                             self.glitch_messages.append(
                                 {"text": "TIME DILATION ACTIVE", "timer": 40}
                             )
-                    if event.key == pygame.K_r:
-                        # R = rewind (overrides reload only when NOT holding weapon UI)
+                    if event.key == pygame.K_t:
                         if self.time_rewind.can_rewind():
                             if self.time_rewind.trigger():
                                 self.temporal_visuals.trigger_glitch(strength=1.6)
@@ -711,7 +808,6 @@ class Game:
                             self.glitch_messages.append(
                                 {"text": "TEMPORAL ECHO SPAWNED", "timer": 40}
                             )
-                    # ────────────────────────────────────────────────────────
 
                 elif self.state == "pause":
                     if event.key == pygame.K_ESCAPE:
@@ -779,32 +875,23 @@ class Game:
 
         return True
 
-    # ─────────────────────────────────────────────────────── update ───────
-
     def update(self):
         if self.state not in {"playing", "loop"}:
             if self.state == "cutscene":
                 self.cutscene_time += 0.06
             return
 
-        # ── Compute temporal scales ────────────────────────────────────────
         dil_world, dil_player = self.time_dilation.update()
 
-        # Fracture zone modifiers
         frac_world  = self.fracture_zones.get_world_scale()
         frac_player = self.fracture_zones.get_player_scale()
 
-        # Combined scales
-        # World enemies/physics scale
         base_world_scale  = self.time_scale * dil_world
-        # Player movement scale (separate so player isn't fully frozen)
         base_player_scale = self.time_scale * dil_player
 
-        # Apply fracture zone on top
         effective_world  = base_world_scale  * abs(frac_world)
         effective_player = base_player_scale * abs(frac_player)
 
-        # Sign from fracture (reverse = negative player_scale)
         reverse_controls = (frac_player < 0) or (frac_world < 0)
 
         self.fracture_zones.update()
@@ -820,34 +907,24 @@ class Game:
             self.mouse_dx      = 0
             self.last_mouse_dx = mx
 
-            # Record history for rewind / echo every frame
             self.time_rewind.record(self.player, self.enemies)
             self.temporal_echo.record(self.player)
 
-            # Record trail when dilation active
             if self.time_dilation.active:
                 self.temporal_visuals.record_trail(
                     self.player, self.time_dilation.energy_ratio
                 )
 
-            # Apply rewind if active
             rewinding = self.time_rewind.update(self.player, self.enemies)
-            if rewinding:
-                # Skip normal update during rewind animation
-                self._finish_frame_counters()
-                return
-
             if rewinding:
                 self._finish_frame_counters()
                 return
 
             self.player.mouse_sensitivity = self.settings["sensitivity"]
 
-            # Reverse controls in mirror/reverse fracture zones
             effective_mx = -mx if reverse_controls else mx
             self.player.move(self.world, effective_mx, self.doors, speed_scale=effective_player)
 
-            # Room tracking
             room_key = self.rooms.get(
                 (int(self.player.x // TILE) * TILE, int(self.player.y // TILE) * TILE)
             )
@@ -864,15 +941,15 @@ class Game:
                         self.floor_texture = self.floor_textures[ambience["floor"] % len(self.floor_textures)]
                     if self.ceiling_textures:
                         self.ceiling_texture = self.ceiling_textures[ambience["ceiling"] % len(self.ceiling_textures)]
-                # Tell fracture zone system
                 self.fracture_zones.enter_room(room_key)
-                # Show fracture message if applicable
-                if room_key in self.fracture_zones.active_effect.__class__.__dict__ if self.fracture_zones.active_effect else False:
-                    pass
                 if self.fracture_zones.active_effect:
                     self.glitch_messages.append(
                         {"text": self.fracture_zones.message, "timer": 60}
                     )
+                self.ceiling_big = self._build_ceiling_texture(
+                    room_tint=self.room_tint,
+                    room_tint_alpha=self.room_tint_alpha,
+                )
             elif not room_key and self.current_room_key:
                 self.current_room_key = ""
                 self.current_room     = ""
@@ -884,9 +961,9 @@ class Game:
                     self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
                 if self.ceiling_textures:
                     self.ceiling_texture = self.ceiling_textures[self.current_level_index % len(self.ceiling_textures)]
+                self.ceiling_big = self._build_ceiling_texture()
 
-            # Focus / frozen scale
-            focus_scale = 0.6 if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) else 1.0
+            focus_scale = 1.6 if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) else 1.0
             if self.time_frozen:
                 focus_scale = 0.1
             if self.anomaly_timer > 0:
@@ -958,11 +1035,9 @@ class Game:
         self._finish_frame_counters()
 
     def _finish_frame_counters(self):
-        """Shared per-frame counter decrements called at end of update."""
         self.weapon_system.update_recoil()
         self.weapon_system.update_sway(-self.last_mouse_dx * 0.4, -self.last_mouse_dx * 0.15)
         self.player.update_invincibility()
-        # Use dilation-affected time for bullet physics
         effective_time = self.time_scale * self.time_dilation.world_scale
         self.weapon_system.update_bullets(self.world, self.enemies, effective_time)
 
@@ -975,12 +1050,12 @@ class Game:
         self.bob_offset = math.sin(self.bob_phase) * 6 * move_amount
         self.bob_side   = math.sin(self.bob_phase * 0.5) * 3 * move_amount
 
-        if self.hit_flash > 0:       self.hit_flash       -= 1
-        if self.hit_marker > 0:      self.hit_marker      -= 1
-        if self.score_pulse > 0:     self.score_pulse      -= 1
-        if self.room_timer > 0:      self.room_timer        -= 1
-        if self.restart_cooldown > 0: self.restart_cooldown -= 1
-        if self.shake > 0:           self.shake             -= 1
+        if self.hit_flash > 0:        self.hit_flash        -= 1
+        if self.hit_marker > 0:       self.hit_marker        -= 1
+        if self.score_pulse > 0:      self.score_pulse       -= 1
+        if self.room_timer > 0:       self.room_timer         -= 1
+        if self.restart_cooldown > 0: self.restart_cooldown  -= 1
+        if self.shake > 0:            self.shake              -= 1
 
         self.screen_zoom     *= 0.85
         if abs(self.screen_zoom) < 0.002:
@@ -995,8 +1070,6 @@ class Game:
             msg["timer"] -= 1
             if msg["timer"] <= 0:
                 self.glitch_messages.remove(msg)
-
-    # ─────────────────────────────────────────────────────── draw enemies ─
 
     def draw_enemies(self, surface):
         for enemy in self.enemies:
@@ -1048,7 +1121,6 @@ class Game:
                                 flash.fill((255, 120, 120, 120))
                                 sprite.blit(flash, (0, 0))
 
-                            # ── Temporal dilation ghost echo on enemies ──
                             if self.time_dilation.active:
                                 ghost = sprite.copy()
                                 ghost.fill((60, 200, 255, 80), special_flags=pygame.BLEND_RGBA_MULT)
@@ -1079,8 +1151,6 @@ class Game:
         dx = (base_size - sprite_size) // 2
         dy = (base_size - sprite_size) // 2
         surface.blit(sprite, (x + dx, y + dy))
-
-    # ─────────────────────────────────────────────────────── render ───────
 
     def render(self):
         if self.state == "menu":
@@ -1163,19 +1233,25 @@ class Game:
             )
 
         else:
-            # ── 3-D scene surface ──────────────────────────────────────────
             scene = pygame.Surface((WIDTH, HEIGHT))
-            scene.fill((20, 20, 24))
-            self._blit_stretched(scene, self.ceiling_texture, pygame.Rect(0, 0, WIDTH, HALF_HEIGHT))
-            self._blit_tiled(scene, self.floor_texture, pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
+            scene.fill((6, 8, 14))
+
+            scene.blit(self.ceiling_big, (0, 0))
+
+            self._blit_tiled(scene, self.floor_texture,
+                             pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
+            floor_grad = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
+            for _fy in range(HALF_HEIGHT):
+                _ratio = _fy / HALF_HEIGHT
+                _a     = int(100 + 130 * _ratio)
+                pygame.draw.line(floor_grad, (0, 0, 0, _a), (0, _fy), (WIDTH, _fy))
+            scene.blit(floor_grad, (0, HALF_HEIGHT))
 
             if self.room_tint_alpha > 0:
                 tint = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 tint.fill((*self.room_tint, self.room_tint_alpha))
                 scene.blit(tint, (0, 0))
 
-            if self.interior_ceiling_overlay:
-                scene.blit(self.interior_ceiling_overlay, (0, 0))
             if self.interior_floor_overlay:
                 scene.blit(self.interior_floor_overlay, (0, HALF_HEIGHT))
 
@@ -1193,7 +1269,6 @@ class Game:
                 bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
             )
 
-            # ── Pre-blit temporal distortion ──────────────────────────────
             rewinding = self.time_rewind.rewinding
             scene = self.temporal_visuals.apply_pre_blit(
                 scene,
@@ -1202,7 +1277,6 @@ class Game:
                 rewinding,
             )
 
-            # ── Zoom / shake / roll ────────────────────────────────────────
             zoom        = 1.0 + self.screen_zoom
             zoom_pulse  = 1.0 + (self.cinematic_pulse * 0.02)
             target_w    = max(1, int(WIDTH  * zoom * zoom_pulse))
@@ -1220,10 +1294,8 @@ class Game:
             base_x = (WIDTH  - scaled.get_width())  // 2 + shake_x
             base_y = (HEIGHT - scaled.get_height()) // 2 + shake_y + int(self.bob_offset)
 
-            # ── Composite to screen ────────────────────────────────────────
             self.screen.fill((0, 0, 0))
 
-            # Chromatic aberration
             if self.chromatic_timer > 0:
                 offset = 2 + self.chromatic_timer
                 red  = scaled.copy()
@@ -1235,7 +1307,6 @@ class Game:
 
             self.screen.blit(scaled, (base_x, base_y))
 
-            # ── Temporal post-blit fx (glitch bands, aberration, rewind) ──
             self.temporal_visuals.apply_post_blit(
                 self.screen,
                 self.time_dilation.active,
@@ -1243,7 +1314,6 @@ class Game:
                 rewinding,
             )
 
-            # ── Interior overlays ─────────────────────────────────────────
             if self.interior_grade:
                 self.screen.blit(self.interior_grade, (0, 0))
             if self.interior_vignette:
@@ -1255,7 +1325,6 @@ class Game:
                 pygame.draw.rect(vig, (0, 0, 0, 0), pygame.Rect(50, 35, WIDTH - 100, HEIGHT - 70))
                 self.screen.blit(vig, (0, 0))
 
-            # Anomaly scan
             if self.anomaly_timer > 0:
                 scan = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 for y in range(0, HEIGHT, 4):
@@ -1263,7 +1332,6 @@ class Game:
                     scan.fill((80, 120, 200, a), pygame.Rect(0, y, WIDTH, 2))
                 self.screen.blit(scan, (0, 0))
 
-            # Room-specific scan overlay
             if self.room_scan and self.room_tint_alpha > 0:
                 scan = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 for y in range(0, HEIGHT, 6):
@@ -1271,26 +1339,21 @@ class Game:
                     scan.fill((*self.room_tint, a), pygame.Rect(0, y, WIDTH, 2))
                 self.screen.blit(scan, (0, 0))
 
-            # ── Fracture zone overlay ─────────────────────────────────────
             self.fracture_zones.draw_overlay(self.screen, self.ui_phase)
 
-            # ── Dilation: blue world-slow overlay ─────────────────────────
             if self.time_dilation.active and self.time_dilation.ramp > 0.05:
                 dil_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 dil_a    = int(30 * self.time_dilation.ramp)
                 dil_surf.fill((40, 160, 255, dil_a))
                 self.screen.blit(dil_surf, (0, 0))
 
-            # Rewind flash overlay
             if rewinding and self.time_rewind.flash_alpha > 0:
                 flash_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 flash_surf.fill((180, 200, 255, self.time_rewind.flash_alpha))
                 self.screen.blit(flash_surf, (0, 0))
 
-            # ── Motion trail overlay ──────────────────────────────────────
             self.temporal_visuals.draw_dilation_trail_overlay(self.screen)
 
-            # ── HUD ───────────────────────────────────────────────────────
             pulse = self.hit_marker / 6 if self.hit_marker > 0 else 0.0
             draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
             draw_crosshair(self.screen, self.hit_marker > 0, pulse)
@@ -1299,11 +1362,11 @@ class Game:
             draw_score(self.screen, self.hud_font, self.score, self.kills,
                        self.score_pulse / 10 if self.score_pulse > 0 else 0.0)
 
-            # FPS
             fps_text = self.hud_font.render(f"FPS: {self.fps_display}", True, (100, 255, 100))
             self.screen.blit(fps_text, (WIDTH - 150, 20))
 
             draw_weapon_info(self.screen, self.player)
+            self.grenade_system.draw_hud(self.screen, self.ui_phase)
             minimap_alpha = 130 + math.sin(self.ui_phase) * 25
             draw_minimap(
                 self.screen, self.world, self.player, self.enemies,
@@ -1318,7 +1381,6 @@ class Game:
                     self.room_timer / 90, abs(math.sin(self.ui_phase)),
                 )
 
-            # ── Temporal HUD ──────────────────────────────────────────────
             draw_temporal_hud(
                 self.screen,
                 self.time_dilation,
@@ -1340,15 +1402,12 @@ class Game:
             if self.state == "pause":
                 draw_pause(self.screen)
 
-        # ── Time-frozen overlay ───────────────────────────────────────────
         if self.time_frozen:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 100, 255, 60))
             self.screen.blit(overlay, (0, 0))
 
         pygame.display.flip()
-
-    # ─────────────────────────────────────────────────────── main loop ────
 
     def run(self):
         running = True

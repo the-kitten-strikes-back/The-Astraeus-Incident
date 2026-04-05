@@ -41,6 +41,15 @@ class Player:
             target_speed += self.speed
         if keys[pygame.K_s]:
             target_speed -= self.speed
+        if keys[pygame.K_a]:
+            #strafe left: add speed in the direction 90 degrees counterclockwise from current angle
+            target_speed += self.speed * math.cos(self.angle - math.pi / 2)
+            target_speed += self.speed * math.sin(self.angle - math.pi / 2)
+        if keys[pygame.K_d]:
+            #strafe right: add speed in the direction 90 degrees clockwise from current angle
+            target_speed += self.speed * math.cos(self.angle + math.pi / 2)
+            target_speed += self.speed * math.sin(self.angle + math.pi / 2)
+            
 
                                                      
         scaled_target = target_speed * speed_scale
