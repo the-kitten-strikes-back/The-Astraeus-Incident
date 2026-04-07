@@ -132,6 +132,7 @@ class Game:
         self.health_packs = []
         self.rooms        = {}
         self.doors        = {}
+        self.enemy_bullets = []
         self.depth_buffer = []
 
         self.player = Player(150, 150)
@@ -566,6 +567,7 @@ class Game:
         self.world, self.enemies, self.health_packs, spawn, self.rooms, self.doors = load_level(
             self.level_paths[self.current_level_index]
         )
+        self.enemy_bullets = []
         self.player.x, self.player.y = spawn
         if self.floor_textures:
             self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
@@ -683,6 +685,7 @@ class Game:
     def reset_game(self):
         self.current_level_index = 0
         self.load_current_level()
+        self.enemy_bullets = []
         self.level_complete_time  = None
         self.player.health        = self.player.max_health
         self.player.invincibility_frames = 0
@@ -910,7 +913,7 @@ class Game:
         reverse_controls = (frac_player < 0) or (frac_world < 0)
 
         self.fracture_zones.update()
-        self.temporal_echo.update()
+        self.temporal_echo.update(self.enemies, self.world)
         self.temporal_visuals.update(
             self.time_dilation.active,
             self.time_dilation.energy_ratio,
@@ -1005,10 +1008,12 @@ class Game:
 
             self.weapon_system.update_reload(self.player)
 
-            update_enemies(
+            new_bullets = update_enemies(
                 self.enemies, self.player, self.world, self.doors,
                 self.on_player_hit, effective_time,
             )
+            self.enemy_bullets.extend(new_bullets)
+            self._update_enemy_bullets(effective_time)
             events = self.grenade_system.update(
                 self.world, self.doors, self.enemies, effective_time
             )
@@ -1097,10 +1102,7 @@ class Game:
             delta = (theta - self.player.angle) % (2 * math.pi)
             if delta > math.pi:
                 delta -= 2 * math.pi
-            if dx > 0 and self.player.angle > math.pi:
-                delta += 2 * math.pi
-            if dx < 0 and dy < 0:
-                delta += 2 * math.pi
+
 
             if -HALF_FOV < delta < HALF_FOV:
                 screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
@@ -1167,7 +1169,72 @@ class Game:
         dx = (base_size - sprite_size) // 2
         dy = (base_size - sprite_size) // 2
         surface.blit(sprite, (x + dx, y + dy))
+    def _update_enemy_bullets(self, time_scale):
+        player = self.player
+        for bullet in self.enemy_bullets[:]:
+            bullet["x"] += math.cos(bullet["angle"]) * bullet["speed"] * time_scale
+            bullet["y"] += math.sin(bullet["angle"]) * bullet["speed"] * time_scale
+            bullet["life"] -= 1
 
+            # Wall collision
+            tx = int(bullet["x"] // TILE) * TILE
+            ty = int(bullet["y"] // TILE) * TILE
+            if (tx, ty) in self.world:
+                self.enemy_bullets.remove(bullet)
+                continue
+            # Ghost hit — enemy bullets can kill the echo
+            if self.temporal_echo.apply_damage_to_ghosts(
+                bullet["x"], bullet["y"], bullet["damage"]
+            ):
+                self.enemy_bullets.remove(bullet)
+                continue
+            # Player hit
+            dx   = bullet["x"] - player.x
+            dy   = bullet["y"] - player.y
+            if math.hypot(dx, dy) < 22:
+                if player.apply_damage(bullet["damage"]):
+                    self.hit_flash       = 12
+                    self.shake           = 8
+                    self.chromatic_timer = 10
+                    self.vignette_timer  = 18
+                    self.cinematic_pulse = 0.9
+                    if player.health <= 0:
+                        self.game_over = True
+                        self.save_game()
+                self.enemy_bullets.remove(bullet)
+                continue
+
+            if bullet["life"] <= 0:
+                self.enemy_bullets.remove(bullet)
+
+    def _draw_enemy_bullets(self, scene):
+        from core.settings import HALF_FOV, FOV, NUM_RAYS, HALF_HEIGHT
+        for bullet in self.enemy_bullets:
+            dx   = bullet["x"] - self.player.x
+            dy   = bullet["y"] - self.player.y
+            dist = math.hypot(dx, dy)
+            if dist < 1:
+                continue
+
+            theta = math.atan2(dy, dx)
+            delta = (theta - self.player.angle + math.pi) % (2 * math.pi) - math.pi
+            if not (-HALF_FOV < delta < HALF_FOV):
+                continue
+
+            screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
+            size     = min(1800 / (dist + 0.001), 22)
+            sx       = int(screen_x - size / 2)
+            sy       = int(HALF_HEIGHT - size / 2)
+
+            ray_idx = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
+            if ray_idx < len(self.depth_buffer) and dist < self.depth_buffer[ray_idx]:
+                surf = pygame.Surface((int(size), int(size)), pygame.SRCALPHA)
+                pygame.draw.circle(
+                    surf, (255, 80, 40, 220),
+                    (int(size) // 2, int(size) // 2),
+                    max(1, int(size) // 2),
+                )
+                scene.blit(surf, (sx, sy))
     def render(self):
         if self.state == "menu":
             self.screen.fill((30, 30, 30))
@@ -1276,6 +1343,7 @@ class Game:
                 self.wall_textures, self.doors, self.door_texture,
             )
             self.draw_enemies(scene)
+            self._draw_enemy_bullets(scene)
             draw_health_packs(scene, self.health_packs, self.player, self.depth_buffer, self.anim_time)
             self.grenade_system.draw_grenades(scene, self.player, self.depth_buffer, self.anim_time)
             self.temporal_echo.draw(scene, self.player, self.depth_buffer)

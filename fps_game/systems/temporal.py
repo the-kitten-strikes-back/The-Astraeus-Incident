@@ -190,13 +190,30 @@ class TimeRewind:
                                  
                                                                                
 class TemporalEcho:
+    """
+    A combat-capable ghost that replays the player's recorded path,
+    shoots at nearby enemies, draws enemy aggro, and has its own HP.
+    """
+    GHOST_HP        = 60
+    SHOOT_RANGE     = 280
+    SHOOT_COOLDOWN  = 38          # frames between ghost shots
+    AGGRO_RANGE     = 220         # enemies within this range prefer the ghost
+    BULLET_SPEED    = 11
+    BULLET_DAMAGE   = 18
+    BULLET_LIFE     = 55
+
     def __init__(self):
-        self._recording : list[dict] = []                        
-        self._ghosts    : list[dict] = []                         
-        self.cooldown   = 0
+        self._recording: list[dict] = []
+        self._ghosts:    list[dict] = []
+        self.cooldown     = 0
         self.cooldown_max = int(ECHO_COOLDOWN_SECS * 60)
-        self._rec_tick  = 0
-        self._rec_sub   = 2                                        
+        self._rec_tick    = 0
+        self._rec_sub     = 2
+
+        # Bullets fired by ghosts — drawn + resolved in game.py
+        self.bullets: list[dict] = []
+
+    # ── recording ──────────────────────────────────────────────────────────
 
     def record(self, player):
         self._rec_tick += 1
@@ -205,10 +222,11 @@ class TemporalEcho:
         self._recording.append({
             "x": player.x, "y": player.y, "angle": player.angle
         })
-                                                
         max_frames = ECHO_DURATION_FRAMES // self._rec_sub + 4
         if len(self._recording) > max_frames:
             self._recording.pop(0)
+
+    # ── spawn ───────────────────────────────────────────────────────────────
 
     def can_spawn(self):
         return self.cooldown <= 0 and len(self._recording) >= 4
@@ -217,25 +235,71 @@ class TemporalEcho:
         if not self.can_spawn():
             return False
         ghost = {
-            "frames"   : list(self._recording),
-            "frame_idx": 0,
-            "x"        : self._recording[0]["x"],
-            "y"        : self._recording[0]["y"],
-            "angle"    : self._recording[0]["angle"],
-            "alpha"    : ECHO_TRAIL_ALPHA,
-            "trail"    : [],
+            "frames":       list(self._recording),
+            "frame_idx":    0,
+            "x":            self._recording[0]["x"],
+            "y":            self._recording[0]["y"],
+            "angle":        self._recording[0]["angle"],
+            "alpha":        ECHO_TRAIL_ALPHA,
+            "trail":        [],
+            "hp":           self.GHOST_HP,
+            "max_hp":       self.GHOST_HP,
+            "shoot_cd":     0,
+            "alive":        True,
+            "hit_flash":    0,          # frames of white flash when struck
+            "aggro_active": False,      # True when an enemy is targeting it
         }
         self._ghosts.append(ghost)
         self._recording.clear()
         self.cooldown = self.cooldown_max
         return True
 
-    def update(self):
+    # ── update ──────────────────────────────────────────────────────────────
+
+    def update(self, enemies=None, world=None):
         if self.cooldown > 0:
             self.cooldown -= 1
 
+        # Tick bullets
+        for b in self.bullets[:]:
+            b["x"]    += math.cos(b["angle"]) * self.BULLET_SPEED
+            b["y"]    += math.sin(b["angle"]) * self.BULLET_SPEED
+            b["life"] -= 1
+            if b["life"] <= 0:
+                self.bullets.remove(b)
+                continue
+            # Wall check
+            if world is not None:
+                from core.settings import TILE
+                tx = int(b["x"] // TILE) * TILE
+                ty = int(b["y"] // TILE) * TILE
+                if (tx, ty) in world:
+                    self.bullets.remove(b)
+                    continue
+            # Hit enemies
+            if enemies is not None:
+                for e in enemies:
+                    if not e["alive"]:
+                        continue
+                    if math.hypot(b["x"] - e["x"], b["y"] - e["y"]) < e.get("radius", 22):
+                        e["health"]    -= self.BULLET_DAMAGE
+                        e["hurt_timer"] = 6
+                        if e["health"] <= 0:
+                            e["alive"] = False
+                        if b in self.bullets:
+                            self.bullets.remove(b)
+                        break
+
+        # Tick ghost aggro — mark enemies that should prefer shooting ghost
+        if enemies is not None:
+            for e in enemies:
+                e["ghost_aggro"] = False   # reset each frame
+
         for g in self._ghosts[:]:
-                              
+            if g["hit_flash"] > 0:
+                g["hit_flash"] -= 1
+
+            # Advance path playback
             if g["frame_idx"] < len(g["frames"]):
                 f = g["frames"][g["frame_idx"]]
                 g["trail"].append((g["x"], g["y"]))
@@ -246,22 +310,124 @@ class TemporalEcho:
                 g["angle"] = f["angle"]
                 g["frame_idx"] += 1
             else:
-                g["alpha"] -= 8
-                if g["alpha"] <= 0:
+                # Path finished — ghost fades
+                g["alpha"] -= 6
+                if g["alpha"] <= 0 or not g["alive"]:
                     self._ghosts.remove(g)
+                    continue
+
+            if not g["alive"]:
+                continue
+
+            # ── Combat: shoot at nearest visible enemy ──────────────────
+            if g["shoot_cd"] > 0:
+                g["shoot_cd"] -= 1
+
+            if enemies is not None and g["shoot_cd"] <= 0:
+                best      = None
+                best_dist = self.SHOOT_RANGE
+                for e in enemies:
+                    if not e["alive"]:
+                        continue
+                    d = math.hypot(e["x"] - g["x"], e["y"] - g["y"])
+                    if d < best_dist:
+                        best      = e
+                        best_dist = d
+
+                if best is not None:
+                    angle = math.atan2(best["y"] - g["y"], best["x"] - g["x"])
+                    self.bullets.append({
+                        "x": g["x"], "y": g["y"],
+                        "angle": angle,
+                        "life": self.BULLET_LIFE,
+                    })
+                    g["shoot_cd"] = self.SHOOT_COOLDOWN
+
+            # ── Aggro: redirect nearby enemies toward ghost ─────────────
+            if enemies is not None:
+                for e in enemies:
+                    if not e["alive"]:
+                        continue
+                    d = math.hypot(e["x"] - g["x"], e["y"] - g["y"])
+                    if d < self.AGGRO_RANGE:
+                        e["ghost_aggro"]    = True
+                        e["ghost_target_x"] = g["x"]
+                        e["ghost_target_y"] = g["y"]
+
+            # ── Take damage from enemy bullets (called from game.py) ────
+            # (game.py checks ghost.hp via apply_damage_to_ghosts)
+
+        return  # enemies list modified in-place
+
+    def apply_damage_to_ghosts(self, bx, by, damage, radius=20):
+        """
+        Called by game.py when an enemy bullet moves.
+        Returns True if any ghost was hit.
+        """
+        for g in self._ghosts:
+            if not g["alive"]:
+                continue
+            if math.hypot(bx - g["x"], by - g["y"]) < radius:
+                g["hp"]        -= damage
+                g["hit_flash"]  = 8
+                if g["hp"] <= 0:
+                    g["alive"]  = False
+                return True
+        return False
+
+    # ── drawing ─────────────────────────────────────────────────────────────
 
     def draw(self, screen, player, depth_buffer):
-        from core.settings import HALF_FOV, FOV, NUM_RAYS
+        from core.settings import HALF_FOV, FOV, NUM_RAYS, HALF_HEIGHT
+
         for g in self._ghosts:
-                             
+            # Trail
             for ti, (tx, ty) in enumerate(g["trail"]):
-                a  = int(g["alpha"] * 0.4 * (ti / max(1, len(g["trail"]))))
-                self._draw_billboard(screen, player, depth_buffer, tx, ty, 6,
-                                     (120, 200, 255), a)
-                             
+                a = int(g["alpha"] * 0.35 * (ti / max(1, len(g["trail"]))))
+                self._draw_billboard(screen, player, depth_buffer,
+                                     tx, ty, 6, (120, 200, 255), a)
+
+            # Ghost body — white flash when hit, else cyan
+            body_color = (255, 255, 255) if g["hit_flash"] > 0 else (140, 220, 255)
+            body_alpha = min(200, g["alpha"] * 2) if g["alive"] else max(0, g["alpha"])
             self._draw_billboard(screen, player, depth_buffer,
-                                 g["x"], g["y"], 28,
-                                 (140, 220, 255), min(200, g["alpha"] * 2))
+                                 g["x"], g["y"], 32,
+                                 body_color, body_alpha)
+
+            # HP bar (screen-space, only if ghost is in front)
+            if g["alive"] and g["hp"] > 0:
+                self._draw_ghost_hpbar(screen, player, depth_buffer, g)
+
+        # Ghost bullets — simple yellow dots projected into 3-D
+        for b in self.bullets:
+            self._draw_billboard(screen, player, depth_buffer,
+                                 b["x"], b["y"], 7,
+                                 (255, 240, 80), 210)
+
+    def _draw_ghost_hpbar(self, screen, player, depth_buffer, g):
+        from core.settings import HALF_FOV, FOV, NUM_RAYS, HALF_HEIGHT
+        dx   = g["x"] - player.x
+        dy   = g["y"] - player.y
+        dist = math.hypot(dx, dy)
+        if dist < 1:
+            return
+        theta = math.atan2(dy, dx)
+        delta = (theta - player.angle + math.pi) % (2 * math.pi) - math.pi
+        if not (-HALF_FOV < delta < HALF_FOV):
+            return
+        sx = (delta + HALF_FOV) * (WIDTH / FOV)
+        sz = min(2000 / (dist + 0.001), 80)
+        ri = max(0, min(NUM_RAYS - 1, int(sx * NUM_RAYS / WIDTH)))
+        if ri >= len(depth_buffer) or dist >= depth_buffer[ri]:
+            return
+
+        bw   = int(sz * 1.2)
+        bh   = 5
+        bx   = int(sx - bw // 2)
+        by   = int(HALF_HEIGHT - sz // 2) - bh - 4
+        ratio = max(0, g["hp"] / g["max_hp"])
+        pygame.draw.rect(screen, (40, 40, 40),  (bx, by, bw, bh))
+        pygame.draw.rect(screen, (80, 200, 255), (bx, by, int(bw * ratio), bh))
 
     @staticmethod
     def _draw_billboard(screen, player, depth_buffer, wx, wy, size, color, alpha):
@@ -289,6 +455,9 @@ class TemporalEcho:
     def cooldown_ratio(self):
         return 1.0 - self.cooldown / self.cooldown_max if self.cooldown_max else 1.0
 
+    @property
+    def active_count(self):
+        return sum(1 for g in self._ghosts if g["alive"])
 
                                                                                
                             

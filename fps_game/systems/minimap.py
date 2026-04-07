@@ -101,9 +101,19 @@ def draw_minimap(screen, world, player, enemies, health_packs, alpha=140, rooms=
 
     for enemy in enemies:
         ex, ey = to_minimap(enemy["x"], enemy["y"])
-        r = max(2, tile_size // 2)
-        color = (220, 60, 60) if enemy["alive"] else (120, 60, 60)
+        is_boss = enemy.get("boss", False)
+        if not enemy["alive"]:
+            color = (120, 60, 60)
+            r = max(2, tile_size // 2)
+        elif is_boss:
+            color = (255, 120, 20)
+            r = max(3, tile_size // 2 + 2)
+        else:
+            color = (220, 60, 60)
+            r = max(2, tile_size // 2)
         pygame.draw.circle(surf, color, (int(ex), int(ey)), r)
+        if is_boss and enemy["alive"]:
+            pygame.draw.circle(surf, (255, 200, 80), (int(ex), int(ey)), r, 1)
 
     px, py = to_minimap(player.x, player.y)
     pr = max(2, tile_size // 2 + 1)

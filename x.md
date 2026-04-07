@@ -98,13 +98,17 @@ from core.settings import (
     ROOM_AMBIENCE_MAP,
     DOOR_IMG,
     TILE,
+    TORCH_IMG,
 )
 from systems.torch import Torch
 
 class Game:
     def __init__(self):
         pygame.init()
-        pygame.mixer.init()
+        try:
+            pygame.mixer.init()
+        except pygame.error:
+            pass
 
         pygame.event.set_allowed(None)
         pygame.event.set_allowed([
@@ -114,7 +118,7 @@ class Game:
 
         self.time_scale   = 1.0
         self.time_frozen  = False
-        self.screen       = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
+        self.screen       = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock        = pygame.time.Clock()
         pygame.event.set_grab(True)
         pygame.mouse.set_visible(False)
@@ -124,7 +128,8 @@ class Game:
         self.current_music_level = -1
         self.music_enabled = True
         self.torch_enabled = False
-        self.torch = Torch(pygame.image.load("fps_game/assets/images/torch.png"))
+        self.torch = Torch(radius=420)
+        self.torch.load_sprite(TORCH_IMG)
         self.weapon_image = pygame.image.load(WEAPON_DEFAULT_IMG).convert_alpha()
         self.enemy_sprite = pygame.image.load(ENEMY_IMG).convert_alpha()
         self.enemy_sprites  = self._load_enemy_sprites()
@@ -163,6 +168,7 @@ class Game:
         self.health_packs = []
         self.rooms        = {}
         self.doors        = {}
+        self.enemy_bullets = []
         self.depth_buffer = []
 
         self.player = Player(150, 150)
@@ -597,6 +603,7 @@ class Game:
         self.world, self.enemies, self.health_packs, spawn, self.rooms, self.doors = load_level(
             self.level_paths[self.current_level_index]
         )
+        self.enemy_bullets = []
         self.player.x, self.player.y = spawn
         if self.floor_textures:
             self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
@@ -714,6 +721,7 @@ class Game:
     def reset_game(self):
         self.current_level_index = 0
         self.load_current_level()
+        self.enemy_bullets = []
         self.level_complete_time  = None
         self.player.health        = self.player.max_health
         self.player.invincibility_frames = 0
@@ -810,7 +818,14 @@ class Game:
                     if event.key == pygame.K_3:
                         self.player.current_weapon_index = 2
                     if event.key == pygame.K_9:
-                        self.torch_enabled = not self.torch_enabled
+                        if not hasattr(self, "_torch_toggle_lock"):
+                            self._torch_toggle_lock = False
+
+                        if not self._torch_toggle_lock:
+                            self.torch_enabled = not self.torch_enabled
+                            self._torch_toggle_lock = True
+                    else:
+                        self._torch_toggle_lock = False
                     if event.key == pygame.K_ESCAPE:
                         self.state = "pause"
                     if event.key == pygame.K_f:
@@ -1028,14 +1043,13 @@ class Game:
             effective_time = effective_world * focus_scale * self.anomaly_scale
 
             self.weapon_system.update_reload(self.player)
-            if self.torch_enabled:
-                self.torch.draw_light(self.screen, int(self.player.x), int(self.player.y))
-                self.torch.draw_sprite(self.screen, int(self.player.x), int(self.player.y))
 
-            update_enemies(
+            new_bullets = update_enemies(
                 self.enemies, self.player, self.world, self.doors,
                 self.on_player_hit, effective_time,
             )
+            self.enemy_bullets.extend(new_bullets)
+            self._update_enemy_bullets(effective_time)
             events = self.grenade_system.update(
                 self.world, self.doors, self.enemies, effective_time
             )
@@ -1124,10 +1138,7 @@ class Game:
             delta = (theta - self.player.angle) % (2 * math.pi)
             if delta > math.pi:
                 delta -= 2 * math.pi
-            if dx > 0 and self.player.angle > math.pi:
-                delta += 2 * math.pi
-            if dx < 0 and dy < 0:
-                delta += 2 * math.pi
+
 
             if -HALF_FOV < delta < HALF_FOV:
                 screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
@@ -1194,7 +1205,67 @@ class Game:
         dx = (base_size - sprite_size) // 2
         dy = (base_size - sprite_size) // 2
         surface.blit(sprite, (x + dx, y + dy))
+    def _update_enemy_bullets(self, time_scale):
+        player = self.player
+        for bullet in self.enemy_bullets[:]:
+            bullet["x"] += math.cos(bullet["angle"]) * bullet["speed"] * time_scale
+            bullet["y"] += math.sin(bullet["angle"]) * bullet["speed"] * time_scale
+            bullet["life"] -= 1
 
+            # Wall collision
+            tx = int(bullet["x"] // TILE) * TILE
+            ty = int(bullet["y"] // TILE) * TILE
+            if (tx, ty) in self.world:
+                self.enemy_bullets.remove(bullet)
+                continue
+
+            # Player hit
+            dx   = bullet["x"] - player.x
+            dy   = bullet["y"] - player.y
+            if math.hypot(dx, dy) < 22:
+                if player.apply_damage(bullet["damage"]):
+                    self.hit_flash       = 12
+                    self.shake           = 8
+                    self.chromatic_timer = 10
+                    self.vignette_timer  = 18
+                    self.cinematic_pulse = 0.9
+                    if player.health <= 0:
+                        self.game_over = True
+                        self.save_game()
+                self.enemy_bullets.remove(bullet)
+                continue
+
+            if bullet["life"] <= 0:
+                self.enemy_bullets.remove(bullet)
+
+    def _draw_enemy_bullets(self, scene):
+        from core.settings import HALF_FOV, FOV, NUM_RAYS, HALF_HEIGHT
+        for bullet in self.enemy_bullets:
+            dx   = bullet["x"] - self.player.x
+            dy   = bullet["y"] - self.player.y
+            dist = math.hypot(dx, dy)
+            if dist < 1:
+                continue
+
+            theta = math.atan2(dy, dx)
+            delta = (theta - self.player.angle + math.pi) % (2 * math.pi) - math.pi
+            if not (-HALF_FOV < delta < HALF_FOV):
+                continue
+
+            screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
+            size     = min(1800 / (dist + 0.001), 22)
+            sx       = int(screen_x - size / 2)
+            sy       = int(HALF_HEIGHT - size / 2)
+
+            ray_idx = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
+            if ray_idx < len(self.depth_buffer) and dist < self.depth_buffer[ray_idx]:
+                surf = pygame.Surface((int(size), int(size)), pygame.SRCALPHA)
+                pygame.draw.circle(
+                    surf, (255, 80, 40, 220),
+                    (int(size) // 2, int(size) // 2),
+                    max(1, int(size) // 2),
+                )
+                scene.blit(surf, (sx, sy))
     def render(self):
         if self.state == "menu":
             self.screen.fill((30, 30, 30))
@@ -1303,14 +1374,21 @@ class Game:
                 self.wall_textures, self.doors, self.door_texture,
             )
             self.draw_enemies(scene)
+            self._draw_enemy_bullets(scene)
             draw_health_packs(scene, self.health_packs, self.player, self.depth_buffer, self.anim_time)
             self.grenade_system.draw_grenades(scene, self.player, self.depth_buffer, self.anim_time)
             self.temporal_echo.draw(scene, self.player, self.depth_buffer)
             self.weapon_system.draw_bullets(scene)
-            self.weapon_system.draw_weapon(
-                scene, self.player,
-                bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
-            )
+            if self.torch_enabled:
+                self.torch.draw_sprite(
+                    scene,
+                    bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
+                )
+            else:
+                self.weapon_system.draw_weapon(
+                    scene, self.player,
+                    bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
+                )
 
             rewinding = self.time_rewind.rewinding
             scene = self.temporal_visuals.apply_pre_blit(
@@ -1396,6 +1474,9 @@ class Game:
                 self.screen.blit(flash_surf, (0, 0))
 
             self.temporal_visuals.draw_dilation_trail_overlay(self.screen)
+
+            if self.torch_enabled:
+                self.torch.draw_light(self.screen, self.anim_time)
 
             pulse = self.hit_marker / 6 if self.hit_marker > 0 else 0.0
             draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
@@ -1555,8 +1636,9 @@ WEAPON_IMAGE_MAP = {
     "Sniper": os.path.join(ASSETS_DIR, "sniper.png"),
 }
 ENEMY_IMG = os.path.join(ASSETS_DIR, "enemy.png")
-WALL_IMG = os.path.join(ASSETS_DIR, "wall.png")
-DOOR_IMG = os.path.join(ASSETS_DIR, "door.png")
+WALL_IMG  = os.path.join(ASSETS_DIR, "wall.png")
+DOOR_IMG  = os.path.join(ASSETS_DIR, "door.png")
+TORCH_IMG = os.path.join(ASSETS_DIR, "torch.png")
 WALL_TEXTURE_FILES = {
     "#": os.path.join(ASSETS_DIR, "wall.png"),
     "A": os.path.join(ASSETS_DIR, "wall_a.png"),
@@ -1673,57 +1755,157 @@ from core.settings import TILE
 from utils.math_utils import is_wall
 
 
+def _can_see_player(enemy, player, world, doors, tile_size):
+    """Simple ray march LOS check."""
+    dx = player.x - enemy["x"]
+    dy = player.y - enemy["y"]
+    dist = math.hypot(dx, dy)
+    steps = int(dist / (tile_size * 0.5))
+    if steps == 0:
+        return True
+    for i in range(1, steps):
+        t = i / steps
+        cx = enemy["x"] + dx * t
+        cy = enemy["y"] + dy * t
+        if is_wall(cx, cy, world, tile_size, doors):
+            return False
+    return True
+
+
+def try_fire_bullet(enemy, player, world, doors):
+    """
+    Returns a new bullet dict if the enemy should fire this frame, else None.
+    Called from update_enemies for ranged/normal/boss types.
+    """
+    dx = player.x - enemy["x"]
+    dy = player.y - enemy["y"]
+    dist = math.hypot(dx, dy)
+
+    fire_range  = enemy.get("fire_range", 400)
+    fire_cd     = enemy.get("fire_cooldown", 0)
+
+    if fire_cd > 0 or dist > fire_range:
+        return None
+    if not _can_see_player(enemy, player, world, doors, TILE):
+        return None
+
+    angle  = math.atan2(dy, dx)
+    spread = enemy.get("bullet_spread", 0.04)
+    angle += random.uniform(-spread, spread)
+
+    # Reset cooldown on the enemy dict
+    enemy["fire_cooldown"] = enemy.get("fire_cd_max", 60)
+
+    return {
+        "x":      enemy["x"],
+        "y":      enemy["y"],
+        "angle":  angle,
+        "speed":  enemy.get("bullet_speed", 9),
+        "damage": enemy.get("bullet_damage", 8),
+        "life":   90,
+        "radius": 6,
+    }
+
+
 def update_enemies(enemies, player, world, doors, on_player_hit, time_scale=1.0):
     if time_scale == 0.0:
-        return
+        return []
+    if enemies is None:
+        return []
+
+    new_bullets = []
+
     for enemy in enemies:
-        enemy["anim_phase"] = (enemy.get("anim_phase", 0.0) + enemy.get("bob_speed", 0.2) * time_scale) % (math.pi * 2)
+        enemy["anim_phase"] = (
+            enemy.get("anim_phase", 0.0)
+            + enemy.get("bob_speed", 0.2) * time_scale
+        ) % (math.pi * 2)
+
         if enemy.get("hurt_timer", 0) > 0:
             enemy["hurt_timer"] -= 1
         if enemy.get("stun_timer", 0) > 0:
             enemy["stun_timer"] -= 1
             continue
-        if enemy["alive"]:
-            dx = player.x - enemy["x"]
-            dy = player.y - enemy["y"]
-            dist = math.hypot(dx, dy)
-            enemy["dist_to_player"] = dist
-            if enemy.get("boss"):
-                if enemy["boss_burst"] > 0:
-                    enemy["boss_burst"] -= 1
-                else:
-                    enemy["boss_cooldown"] -= 1
-                    if enemy["boss_cooldown"] <= 0:
-                        enemy["boss_burst"] = random.randint(12, 26)
-                        enemy["boss_cooldown"] = random.randint(90, 160)
-                        enemy["time_bias"] = random.uniform(-0.8, 1.1)
-            if dist > 5:
-                drift = enemy.get("time_bias", 0.0) * 0.4
-                burst_scale = 1.0
-                if enemy.get("boss") and enemy["boss_burst"] > 0:
-                    burst_scale = 2.4
-                slow_factor = 0.5 if enemy.get("slow_timer", 0) > 0 else 1.0
-                if enemy.get("slow_timer", 0) > 0:
-                    enemy["slow_timer"] -= 1
-                local_scale = max(0.25, min(2.6, (time_scale + drift) * burst_scale * slow_factor))
-                step_x = dx / dist * enemy["speed"] * local_scale
-                step_y = dy / dist * enemy["speed"] * local_scale
-                nx = enemy["x"] + step_x
-                ny = enemy["y"] + step_y
-                if not is_wall(nx, enemy["y"], world, TILE, doors):
-                    enemy["x"] = nx
-                if not is_wall(enemy["x"], ny, world, TILE, doors):
-                    enemy["y"] = ny
 
-            if enemy["attack_cooldown"] > 0:
-                enemy["attack_cooldown"] -= 1
+        # Tick fire cooldown every frame regardless
+        if enemy.get("fire_cooldown", 0) > 0:
+            enemy["fire_cooldown"] -= 1
 
-            attack_range = 60 if enemy["type"] != "ranged" else 120
-            if dist < attack_range and enemy["attack_cooldown"] <= 0:
-                on_player_hit(enemy)
-                enemy["attack_cooldown"] = 30
-        else:
+        if not enemy["alive"]:
             enemy["death_timer"] += 1
+            continue
+
+        dx   = player.x - enemy["x"]
+        dy   = player.y - enemy["y"]
+        dist = math.hypot(dx, dy)
+        enemy["dist_to_player"] = dist
+
+        # Boss burst logic
+        if enemy.get("boss"):
+            if enemy["boss_burst"] > 0:
+                enemy["boss_burst"] -= 1
+            else:
+                enemy["boss_cooldown"] -= 1
+                if enemy["boss_cooldown"] <= 0:
+                    enemy["boss_burst"]   = random.randint(12, 26)
+                    enemy["boss_cooldown"] = random.randint(90, 160)
+                    enemy["time_bias"]    = random.uniform(-0.8, 1.1)
+
+        # Movement
+        if dist > 5:
+            drift       = enemy.get("time_bias", 0.0) * 0.4
+            burst_scale = 2.4 if (enemy.get("boss") and enemy["boss_burst"] > 0) else 1.0
+            slow_factor = 0.5 if enemy.get("slow_timer", 0) > 0 else 1.0
+            if enemy.get("slow_timer", 0) > 0:
+                enemy["slow_timer"] -= 1
+
+            local_scale = max(0.25, min(2.6,
+                (time_scale + drift) * burst_scale * slow_factor))
+
+            # Ranged enemies keep a preferred distance
+            e_type       = enemy.get("type", "normal")
+            keep_dist    = enemy.get("keep_distance", 0)
+            too_close    = keep_dist > 0 and dist < keep_dist
+            move_scale   = -0.6 if too_close else 1.0
+
+            step_x = dx / dist * enemy["speed"] * local_scale * move_scale
+            step_y = dy / dist * enemy["speed"] * local_scale * move_scale
+            nx = enemy["x"] + step_x
+            ny = enemy["y"] + step_y
+            if not is_wall(nx, enemy["y"], world, TILE, doors):
+                enemy["x"] = nx
+            if not is_wall(enemy["x"], ny, world, TILE, doors):
+                enemy["y"] = ny
+
+        # Attack cooldown
+        if enemy.get("attack_cooldown", 0) > 0:
+            enemy["attack_cooldown"] -= 1
+
+        e_type = enemy.get("type", "normal")
+
+        # Shooting enemies: ranged, normal (at range), all bosses
+        shoots = (
+            e_type == "ranged"
+            or e_type == "normal"
+            or enemy.get("boss", False)
+        )
+        if shoots:
+            bullet = try_fire_bullet(enemy, player, world, doors)
+            if bullet:
+                new_bullets.append(bullet)
+                enemy["attack_frame"] = 5
+
+        # Melee attack (tank always, others only up close)
+        melee_range = 60 if e_type != "ranged" else 0
+        if e_type == "tank":
+            melee_range = 70
+        if (melee_range > 0
+                and dist < melee_range
+                and enemy["attack_cooldown"] <= 0):
+            on_player_hit(enemy)
+            enemy["attack_cooldown"] = 30
+
+    return new_bullets
 ```
 
 ## fps_game/enemies/enemy.py
@@ -1734,79 +1916,72 @@ import random
 
 
 def create_enemy(enemy_type, x, y):
+    base = dict(
+        x=x, y=y, type=enemy_type,
+        anim_phase=random.random() * 6.28318,
+        hurt_timer=0, time_bias=random.uniform(-0.5, 0.7),
+        boss=False, boss_kind="", boss_cooldown=random.randint(60, 140),
+        boss_burst=0, stun_timer=0, slow_timer=0,
+        alive=True, death_timer=0, attack_cooldown=0, attack_frame=0,
+        fire_cooldown=random.randint(0, 40),   # stagger initial shots
+    )
+
     if enemy_type == "fast":
-        health = 80
-        speed = 4
-        radius = 18
-        bob_speed = 0.35
-        damage = 8
+        base.update(health=80,  speed=4,   radius=18, bob_speed=0.35, damage=8,
+                    fire_range=0)   # fast enemies never shoot
+
     elif enemy_type == "tank":
-        health = 200
-        speed = 1.5
-        radius = 28
-        bob_speed = 0.18
-        damage = 15
+        base.update(health=200, speed=1.5, radius=28, bob_speed=0.18, damage=15,
+                    fire_range=0)   # tank is pure melee
+
     elif enemy_type == "ranged":
-        health = 90
-        speed = 0.7
-        radius = 20
-        bob_speed = 0.22
-        damage = 10
+        base.update(health=90,  speed=1.2, radius=20, bob_speed=0.22, damage=6,
+                    fire_range=500, fire_cd_max=55,  bullet_speed=10,
+                    bullet_damage=10, bullet_spread=0.03,
+                    keep_distance=180)
+
+    elif enemy_type == "normal":
+        base.update(health=100, speed=2,   radius=22, bob_speed=0.28, damage=10,
+                    fire_range=300, fire_cd_max=80,  bullet_speed=8,
+                    bullet_damage=8, bullet_spread=0.06,
+                    keep_distance=0)
+
     elif enemy_type == "boss1":
-        health = 300
-        speed = 2.2
-        radius = 36
-        bob_speed = 0.2
-        damage = 18
+        base.update(health=300, speed=2.2, radius=36, bob_speed=0.20, damage=18,
+                    boss=True, boss_kind="boss1",
+                    fire_range=550, fire_cd_max=45,  bullet_speed=11,
+                    bullet_damage=14, bullet_spread=0.05,
+                    keep_distance=120)
+
     elif enemy_type == "boss2":
-        health = 380
-        speed = 1.9
-        radius = 38
-        bob_speed = 0.16
-        damage = 20
+        base.update(health=380, speed=1.9, radius=38, bob_speed=0.16, damage=20,
+                    boss=True, boss_kind="boss2",
+                    fire_range=600, fire_cd_max=35,  bullet_speed=12,
+                    bullet_damage=16, bullet_spread=0.04,
+                    keep_distance=140)
+
     elif enemy_type == "boss3":
-        health = 450
-        speed = 2.1
-        radius = 40
-        bob_speed = 0.18
-        damage = 22
+        base.update(health=450, speed=2.1, radius=40, bob_speed=0.18, damage=22,
+                    boss=True, boss_kind="boss3",
+                    fire_range=650, fire_cd_max=28,  bullet_speed=13,
+                    bullet_damage=18, bullet_spread=0.035,
+                    keep_distance=150)
+
     elif enemy_type == "boss_final":
-        health = 600
-        speed = 2.4
-        radius = 46
-        bob_speed = 0.14
-        damage = 26
+        base.update(health=600, speed=2.4, radius=46, bob_speed=0.14, damage=26,
+                    boss=True, boss_kind="boss_final",
+                    fire_range=700, fire_cd_max=22,  bullet_speed=14,
+                    bullet_damage=22, bullet_spread=0.025,
+                    keep_distance=160)
+
     else:
         enemy_type = "normal"
-        health = 100
-        speed = 2
-        radius = 22
-        bob_speed = 0.28
-        damage = 10
-
-    return {
-        "x": x,
-        "y": y,
-        "type": enemy_type,
-        "health": health,
-        "speed": speed,
-        "radius": radius,
-        "anim_phase": random.random() * 6.28318,
-        "bob_speed": bob_speed,
-        "hurt_timer": 0,
-        "time_bias": random.uniform(-0.5, 0.7),
-        "boss": enemy_type.startswith("boss"),
-        "boss_kind": enemy_type if enemy_type.startswith("boss") else "",
-        "boss_cooldown": random.randint(60, 140),
-        "boss_burst": 0,
-        "damage": damage,
-        "stun_timer": 0,
-        "slow_timer": 0,
-        "alive": True,
-        "death_timer": 0,
-        "attack_cooldown": 0,
-        "attack_frame": 0,
-    }
+        base.update(type="normal", health=100, speed=2, radius=22,
+                    bob_speed=0.28, damage=10,
+                    fire_range=300, fire_cd_max=80, bullet_speed=8,
+                    bullet_damage=8, bullet_spread=0.06,
+                    keep_distance=0)
+    return base
 ```
 
 ## fps_game/player/__init__.py
@@ -1858,43 +2033,93 @@ class Player:
 
     def move(self, world, mouse_dx, doors=None, speed_scale: float = 1.0):
         keys = pygame.key.get_pressed()
-        target_speed = 0.0
-        if keys[pygame.K_w]:
-            target_speed += self.speed
-        if keys[pygame.K_s]:
-            target_speed -= self.speed
-        if keys[pygame.K_a]:
-            #strafe left: add speed in the direction 90 degrees counterclockwise from current angle
-            target_speed += self.speed * math.cos(self.angle - math.pi / 2)
-            target_speed += self.speed * math.sin(self.angle - math.pi / 2)
-        if keys[pygame.K_d]:
-            #strafe right: add speed in the direction 90 degrees clockwise from current angle
-            target_speed += self.speed * math.cos(self.angle + math.pi / 2)
-            target_speed += self.speed * math.sin(self.angle + math.pi / 2)
-            
 
-                                                     
-        scaled_target = target_speed * speed_scale
-        self.current_speed += (scaled_target - self.current_speed) * self.accel
+        # Separate forward/back and strafe into two scalar axes.
+        forward = 0.0
+        strafe  = 0.0
+        if keys[pygame.K_w]: forward += 1.0
+        if keys[pygame.K_s]: forward -= 1.0
+        if keys[pygame.K_a]: strafe  -= 1.0
+        if keys[pygame.K_d]: strafe  += 1.0
 
-        dx = math.cos(self.angle) * self.current_speed
-        dy = math.sin(self.angle) * self.current_speed
+        # Compose a 2-D wish vector in world space.
+        wish_dx = math.cos(self.angle) * forward - math.sin(self.angle) * strafe
+        wish_dy = math.sin(self.angle) * forward + math.cos(self.angle) * strafe
 
-        if abs(self.current_speed) > 0.001:
-            nx = self.x + dx
-            ny = self.y + dy
+        # Normalise so diagonal movement isn't faster.
+        mag = math.hypot(wish_dx, wish_dy)
+        if mag > 1.0:
+            wish_dx /= mag
+            wish_dy /= mag
+
+        target_dx = wish_dx * self.speed * speed_scale
+        target_dy = wish_dy * self.speed * speed_scale
+
+        # Smooth acceleration on each axis independently.
+        self.vel_x = getattr(self, "vel_x", 0.0)
+        self.vel_y = getattr(self, "vel_y", 0.0)
+        self.vel_x += (target_dx - self.vel_x) * self.accel
+        self.vel_y += (target_dy - self.vel_y) * self.accel
+
+        # Per-axis collision so you can slide along walls.
+        if abs(self.vel_x) > 0.001:
+            nx = self.x + self.vel_x
             if not is_wall(nx, self.y, world, TILE, doors):
                 self.x = nx
+            else:
+                self.vel_x = 0.0
+
+        if abs(self.vel_y) > 0.001:
+            ny = self.y + self.vel_y
             if not is_wall(self.x, ny, world, TILE, doors):
                 self.y = ny
+            else:
+                self.vel_y = 0.0
 
-        if self.speed > 0:
-            self.move_amount = min(1.0, abs(self.current_speed) / self.speed)
-        else:
-            self.move_amount = 0.0
+        current_speed = math.hypot(self.vel_x, self.vel_y)
+        self.current_speed = current_speed
+        self.move_amount = min(1.0, current_speed / self.speed) if self.speed > 0 else 0.0
 
         if mouse_dx:
             self.angle += mouse_dx * self.mouse_sensitivity
+            keys = pygame.key.get_pressed()
+            target_speed = 0.0
+            if keys[pygame.K_w]:
+                target_speed += self.speed
+            if keys[pygame.K_s]:
+                target_speed -= self.speed
+            if keys[pygame.K_a]:
+                #strafe left: add speed in the direction 90 degrees counterclockwise from current angle
+                target_speed += self.speed * math.cos(self.angle - math.pi / 2)
+                target_speed += self.speed * math.sin(self.angle - math.pi / 2)
+            if keys[pygame.K_d]:
+                #strafe right: add speed in the direction 90 degrees clockwise from current angle
+                target_speed += self.speed * math.cos(self.angle + math.pi / 2)
+                target_speed += self.speed * math.sin(self.angle + math.pi / 2)
+                
+
+                                                        
+            scaled_target = target_speed * speed_scale
+            self.current_speed += (scaled_target - self.current_speed) * self.accel
+
+            dx = math.cos(self.angle) * self.current_speed
+            dy = math.sin(self.angle) * self.current_speed
+
+            if abs(self.current_speed) > 0.001:
+                nx = self.x + dx
+                ny = self.y + dy
+                if not is_wall(nx, self.y, world, TILE, doors):
+                    self.x = nx
+                if not is_wall(self.x, ny, world, TILE, doors):
+                    self.y = ny
+
+            if self.speed > 0:
+                self.move_amount = min(1.0, abs(self.current_speed) / self.speed)
+            else:
+                self.move_amount = 0.0
+
+            if mouse_dx:
+                self.angle += mouse_dx * self.mouse_sensitivity
 
     def apply_damage(self, amount):
         if self.invincibility_frames > 0:
@@ -2670,7 +2895,13 @@ class GrenadeSystem:
 
             if grenade["fuse"] <= 0:
                 self._explode(grenade, enemies, events)
-                pygame.mixer.Sound.play(pygame.mixer.Sound("fps_game/assets/sounds/effects/explosion.mp3"))
+                try:
+                    import os
+                    explosion_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "sounds", "effects", "explosion.mp3")
+                    if os.path.exists(explosion_path):
+                        pygame.mixer.Sound(explosion_path).play()
+                except Exception:
+                    pass
                 self.grenades.remove(grenade)
                 continue
 
@@ -3173,9 +3404,19 @@ def draw_minimap(screen, world, player, enemies, health_packs, alpha=140, rooms=
 
     for enemy in enemies:
         ex, ey = to_minimap(enemy["x"], enemy["y"])
-        r = max(2, tile_size // 2)
-        color = (220, 60, 60) if enemy["alive"] else (120, 60, 60)
+        is_boss = enemy.get("boss", False)
+        if not enemy["alive"]:
+            color = (120, 60, 60)
+            r = max(2, tile_size // 2)
+        elif is_boss:
+            color = (255, 120, 20)
+            r = max(3, tile_size // 2 + 2)
+        else:
+            color = (220, 60, 60)
+            r = max(2, tile_size // 2)
         pygame.draw.circle(surf, color, (int(ex), int(ey)), r)
+        if is_boss and enemy["alive"]:
+            pygame.draw.circle(surf, (255, 200, 80), (int(ex), int(ey)), r, 1)
 
     px, py = to_minimap(player.x, player.y)
     pr = max(2, tile_size // 2 + 1)
@@ -3223,8 +3464,8 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
 
                 # Sharp distance falloff — close walls bright, far walls very dark.
                 # This is critical for the "enclosed corridor" feel.
-                brightness = 240 / (1 + depth * depth * 0.00013)
-                brightness = max(18, min(240, brightness))
+                brightness = 600 / (1 + depth * depth * 0.00013)
+                brightness = max(18, min(600, brightness))
 
                 if hit_door and door_texture is not None:
                     tex = door_texture
@@ -3930,30 +4171,74 @@ def draw_temporal_hud(screen, dilation: TimeDilation, rewind: TimeRewind,
 Filename: `fps_game/systems/torch.py`
 
 ```python
-import pygame
 import math
+import os
+
+import pygame
+
 
 class Torch:
-    def __init__(self, sprite, radius=220, intensity=180):
-        self.sprite = sprite
+    def __init__(self, radius=420):
         self.radius = radius
-        self.intensity = intensity
+        self._sprite = None
+        self._light_surf = None
+        self._build_light()
 
-    def draw_light(self, surface, player_x, player_y):
-        # Create radial gradient for sci-fi glow
-        glow = pygame.Surface((self.radius*2, self.radius*2), pygame.SRCALPHA)
-        for r in range(self.radius, 0, -4):
-            alpha = int(self.intensity * (r / self.radius))
-            pygame.draw.circle(glow, (80, 200, 255, alpha), (self.radius, self.radius), r)
-        
-        # Center glow on player
-        surface.blit(glow, (player_x - self.radius, player_y - self.radius), special_flags=pygame.BLEND_ADD)
+    def load_sprite(self, path):
+        try:
+            img = pygame.image.load(path).convert_alpha()
+            self._sprite = pygame.transform.scale(img, (300, 200))
+        except (FileNotFoundError, pygame.error):
+            surf = pygame.Surface((300, 200), pygame.SRCALPHA)
+            pygame.draw.rect(surf, (160, 100, 40), (130, 80, 40, 100))
+            pygame.draw.circle(surf, (255, 200, 50), (150, 80), 30)
+            self._sprite = surf
 
-    def draw_sprite(self, surface, player_x, player_y):
-        # Draw torch sprite at bottom-right HUD
-        rect = self.sprite.get_rect()
-        rect.bottomright = (surface.get_width()-40, surface.get_height()-40)
-        surface.blit(self.sprite, rect)
+    def _build_light(self):
+        r = self.radius
+        surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+        for i in range(r, 0, -1):
+            ratio = i / r
+            alpha = int(255 * (1.0 - ratio) ** 0.55)
+            green = int(230 + 25 * (1.0 - ratio))
+            blue  = int(160 * (1.0 - ratio))
+            pygame.draw.circle(surf, (255, min(255, green), blue, alpha), (r, r), i)
+        self._light_surf = surf
+
+    def draw_sprite(self, scene, bob_y=0.0, sway_x=0.0, sway_y=0.0):
+        if self._sprite is None:
+            return
+        sw = scene.get_width()
+        sh = scene.get_height()
+        w  = self._sprite.get_width()
+        h  = self._sprite.get_height()
+        x  = sw // 2 - w // 2 + int(sway_x)
+        y  = sh - h + int(sway_y + bob_y)
+        scene.blit(self._sprite, (x, y))
+
+    def draw_light(self, screen, anim_time=0.0):
+        sw, sh = screen.get_width(), screen.get_height()
+        cx, cy = sw // 2, sh // 2
+
+        flicker = (
+            1.0
+            + 0.025 * math.sin(anim_time * 8.1)
+            + 0.015 * math.sin(anim_time * 17.3)
+        )
+        r = max(1, int(self.radius * flicker))
+
+        darkness = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        darkness.fill((0, 0, 0, 210))
+
+        light = pygame.transform.smoothscale(self._light_surf, (r * 2, r * 2))
+        darkness.blit(light, (cx - r, cy - r), special_flags=pygame.BLEND_RGBA_SUB)
+
+        screen.blit(darkness, (0, 0))
+
+        bloom_r = max(1, int(r * 0.14))
+        glow = pygame.Surface((bloom_r * 2, bloom_r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (255, 235, 160, 55), (bloom_r, bloom_r), bloom_r)
+        screen.blit(glow, (cx - bloom_r, cy - bloom_r), special_flags=pygame.BLEND_RGBA_ADD)
 ```
 
 ## fps_game/systems/ui.py
@@ -4130,16 +4415,7 @@ def draw_scifi_hud(screen, phase=0.0, alert=False):
     for y in range(0, HEIGHT, 70):
         pygame.draw.line(overlay, grid, (0, y), (WIDTH, y), 1)
 
-    margin = 12
-    corner = 26
-    for pts in [
-        [(margin, margin), (margin + corner, margin), (margin, margin), (margin, margin + corner)],
-        [(WIDTH - margin, margin), (WIDTH - margin - corner, margin), (WIDTH - margin, margin), (WIDTH - margin, margin + corner)],
-        [(margin, HEIGHT - margin), (margin + corner, HEIGHT - margin), (margin, HEIGHT - margin), (margin, HEIGHT - margin - corner)],
-        [(WIDTH - margin, HEIGHT - margin), (WIDTH - margin - corner, HEIGHT - margin), (WIDTH - margin, HEIGHT - margin), (WIDTH - margin, HEIGHT - margin - corner)],
-    ]:
-        pygame.draw.line(overlay, frame, pts[0], pts[1], 2)
-        pygame.draw.line(overlay, frame, pts[2], pts[3], 2)
+
 
     panel_h = 70
     panel_y = HEIGHT - panel_h - 10
