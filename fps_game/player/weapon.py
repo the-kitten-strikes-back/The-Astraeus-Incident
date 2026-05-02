@@ -6,14 +6,23 @@ import pygame
 
 from core.settings import EFFECT_FILES, WIDTH, HEIGHT, DELTA_ANGLE, WEAPON_DEFAULT_IMG, WEAPON_IMAGE_MAP
 
+ENEMY_HITBOX_SCALE = 0.62
+ENEMY_HITBOX_MIN = 10
+
+
+def _effective_enemy_hit_radius(enemy):
+    base = enemy.get("radius", 20)
+    return max(ENEMY_HITBOX_MIN, int(base * ENEMY_HITBOX_SCALE))
+
 
 class Weapon:
-    def __init__(self, name, damage, ammo, max_ammo, spread):
+    def __init__(self, name, damage, ammo, max_ammo, spread, fire_rate=0.2):
         self.name = name
         self.damage = damage
         self.ammo = ammo
         self.max_ammo = max_ammo
         self.spread = spread
+        self.fire_rate = fire_rate
 
 
 class WeaponSystem:
@@ -33,7 +42,6 @@ class WeaponSystem:
         self.reload_timer = 0
         self.reload_time = 60
 
-        self.fire_rate = 0.2
         self.last_shot = 0
 
         self._load_weapon_images()
@@ -50,7 +58,7 @@ class WeaponSystem:
         weapon = player.get_weapon()
         if self.reloading or weapon.ammo <= 0:
             return 0, 0, False, False
-        if now - self.last_shot <= self.fire_rate:
+        if now - self.last_shot <= weapon.fire_rate:
             return 0, 0, False, False
 
         self.last_shot = now
@@ -84,7 +92,7 @@ class WeaponSystem:
             delta = (delta + math.pi) % (2 * math.pi) - math.pi
             spread = random.uniform(-weapon.spread, weapon.spread)
             delta += spread
-            enemy_radius = enemy.get("radius", 20)
+            enemy_radius = _effective_enemy_hit_radius(enemy)
             hit_angle = math.atan2(enemy_radius, max(1.0, distance))
             if abs(delta) < max(DELTA_ANGLE * 2, hit_angle):
                 if distance < wall_dist and enemy["alive"]:
@@ -123,7 +131,7 @@ class WeaponSystem:
                 if enemy["alive"]:
                     dx = bullet["x"] - enemy["x"]
                     dy = bullet["y"] - enemy["y"]
-                    if math.hypot(dx, dy) < enemy["radius"]:
+                    if math.hypot(dx, dy) < _effective_enemy_hit_radius(enemy):
                         enemy["health"] -= 50
                         enemy["hurt_timer"] = 6
                         if enemy["health"] <= 0:

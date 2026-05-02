@@ -217,3 +217,27 @@ def draw_scifi_hud(screen, phase=0.0, alert=False):
         overlay.blit(alert_surface, (0, 0))
 
     screen.blit(overlay, (0, 0))
+
+
+def draw_sniper_scope(screen, radius=None):
+    cx, cy = WIDTH // 2, HEIGHT // 2
+    if radius is None:
+        radius = int(min(WIDTH, HEIGHT) * 0.42)
+
+    shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    shade.fill((0, 0, 0, 235))
+    pygame.draw.circle(shade, (0, 0, 0, 0), (cx, cy), radius)
+    screen.blit(shade, (0, 0))
+
+    ring_color = (210, 220, 235)
+    tick_color = (170, 190, 210)
+    pygame.draw.circle(screen, ring_color, (cx, cy), radius, 2)
+    pygame.draw.line(screen, ring_color, (cx - radius, cy), (cx + radius, cy), 1)
+    pygame.draw.line(screen, ring_color, (cx, cy - radius), (cx, cy + radius), 1)
+
+    tick = 12
+    pygame.draw.line(screen, tick_color, (cx - tick, cy - radius + 40), (cx + tick, cy - radius + 40), 1)
+    pygame.draw.line(screen, tick_color, (cx - tick, cy + radius - 40), (cx + tick, cy + radius - 40), 1)
+    pygame.draw.line(screen, tick_color, (cx - radius + 40, cy - tick), (cx - radius + 40, cy + tick), 1)
+    pygame.draw.line(screen, tick_color, (cx + radius - 40, cy - tick), (cx + radius - 40, cy + tick), 1)
+    pygame.draw.circle(screen, ring_color, (cx, cy), 3)

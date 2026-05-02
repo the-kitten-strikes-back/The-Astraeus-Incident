@@ -23,6 +23,7 @@ WEAPON_IMAGE_MAP = {
     "Pistol": os.path.join(ASSETS_DIR, "pistol.png"),
     "Shotgun": os.path.join(ASSETS_DIR, "shotgun.png"),
     "Sniper": os.path.join(ASSETS_DIR, "sniper.png"),
+    "Machine Gun": os.path.join(ASSETS_DIR, "machine_gun.png"),
 }
 ENEMY_IMG = os.path.join(ASSETS_DIR, "enemy.png")
 WALL_IMG  = os.path.join(ASSETS_DIR, "wall.png")
@@ -111,11 +112,11 @@ MUSIC_TRACKS = {
 
 # Sound effects configuration
 EFFECT_FILES = {
-    "gunshot": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
+    "laser": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
     "level_up": os.path.join(EFFECTS_DIR, "level_up.mp3"),
     "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
     "reload": os.path.join(EFFECTS_DIR, "reload.mp3"),
-    "laser": os.path.join(EFFECTS_DIR, "laser.mp3"),
+    "gunshot": os.path.join(EFFECTS_DIR, "laser.mp3"),
 }
 
 def get_music_for_level(level):

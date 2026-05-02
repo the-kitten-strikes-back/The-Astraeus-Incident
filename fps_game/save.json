@@ -1,13 +1,28 @@
 {
-  "level": 1,
-  "score": 50,
-  "kills": 1,
-  "health": 4,
-  "sensitivity": 0.001,
-  "fullscreen": true,
+  "level": 0,
+  "score": 0,
+  "kills": 0,
+  "health": 100,
+  "sensitivity": 0.002,
+  "fullscreen": false,
   "ammo": [
-    1,
+    10,
     5,
-    3
-  ]
+    3,
+    60
+  ],
+  "labyrinth": {
+    "run_id": "run-bootstrap",
+    "skill_rating": 0.7517,
+    "total_puzzles": 8,
+    "total_solved": 5,
+    "total_failed": 3,
+    "total_attempts": 11,
+    "streak": 2,
+    "mistake_profile": {
+      "arithmetic": 0,
+      "pattern": 1,
+      "logic": 3
+    }
+  }
 }

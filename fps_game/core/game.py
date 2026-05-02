@@ -40,6 +40,7 @@ from systems.ui import (
     draw_overlay_messages,
     draw_room_label,
     draw_scifi_hud,
+    draw_sniper_scope,
 )
 from systems.minimap import draw_minimap
 from systems.cutscene import draw_cutscene
@@ -65,6 +66,7 @@ from core.settings import (
     TORCH_IMG,
 )
 from systems.torch import Torch
+from systems.labyrinth import AdaptivePuzzleEngine
 
 class Game:
     def __init__(self):
@@ -120,7 +122,12 @@ class Game:
         self.fracture_zones = FractureZones()
         self.temporal_visuals = TemporalVisuals()
 
-        self.level_paths = sorted(glob.glob(f"{LEVELS_DIR}/level*.txt"))
+        self.level_paths = sorted(
+            glob.glob(f"{LEVELS_DIR}/level*.txt"),
+            key=lambda path: int(
+                "".join(ch for ch in os.path.basename(path) if ch.isdigit()) or 0
+            ),
+        )
         if not self.level_paths:
             raise FileNotFoundError("No level files found in levels/ directory.")
         self.current_level_index  = 0
@@ -160,6 +167,8 @@ class Game:
         self.anomaly_timer   = 0
         self.anomaly_scale   = 1.0
         self.glitch_messages = []
+        self.sniper_scoped   = False
+        self.scope_zoom      = 1.8
         self.cutscene_index  = 0
         self.cutscene_time   = 0.0
         self.cutscene_return_state = "playing"
@@ -170,6 +179,12 @@ class Game:
         self.room_tint       = (0, 0, 0)
         self.room_tint_alpha = 0
         self.room_scan       = False
+        self.labyrinth_engine = AdaptivePuzzleEngine()
+        self.labyrinth_puzzle = None
+        self.labyrinth_target_door = None
+        self.labyrinth_input = ""
+        self.labyrinth_feedback = ""
+        self.labyrinth_feedback_timer = 0
 
         self.fps_counter  = 0
         self.fps_display  = 0
@@ -616,6 +631,7 @@ class Game:
                     weapon.ammo = max(0, min(int(value), weapon.max_ammo))
                 except (TypeError, ValueError):
                     continue
+        self.labyrinth_engine.load_snapshot(data.get("labyrinth"))
 
     def save_game(self):
         data = {
@@ -626,6 +642,7 @@ class Game:
             "sensitivity": self.settings.get("sensitivity", 0.003),
             "fullscreen":  self.settings.get("fullscreen", True),
             "ammo":        [w.ammo for w in self.player.weapons],
+            "labyrinth":   self.labyrinth_engine.snapshot(),
         }
         try:
             with open(self.save_path, "w", encoding="utf-8") as f:
@@ -657,7 +674,56 @@ class Game:
                 closest      = (x, y)
                 closest_dist = dist
         if closest:
-            self.doors[closest]["open"] = not self.doors[closest]["open"]
+            if self.doors[closest]["open"]:
+                self.doors[closest]["open"] = False
+            else:
+                self._start_labyrinth_for_door(closest)
+
+    def _start_labyrinth_for_door(self, door_pos):
+        self.labyrinth_target_door = door_pos
+        self.labyrinth_puzzle = self.labyrinth_engine.generate_puzzle()
+        self.labyrinth_input = ""
+        self.labyrinth_feedback = "LABYRINTH PROTOCOL ENGAGED"
+        self.labyrinth_feedback_timer = 40
+        self.state = "labyrinth"
+
+    def _cancel_labyrinth(self):
+        self.labyrinth_target_door = None
+        self.labyrinth_puzzle = None
+        self.labyrinth_input = ""
+        self.labyrinth_feedback = ""
+        self.labyrinth_feedback_timer = 0
+        self.state = "playing"
+
+    def _submit_labyrinth_answer(self):
+        if not self.labyrinth_puzzle:
+            self._cancel_labyrinth()
+            return
+
+        solved, feedback = self.labyrinth_engine.submit_answer(
+            self.labyrinth_puzzle, self.labyrinth_input
+        )
+        self.labyrinth_feedback = feedback
+        self.labyrinth_feedback_timer = 80
+
+        if solved:
+            if self.labyrinth_target_door in self.doors:
+                self.doors[self.labyrinth_target_door]["open"] = True
+            self.glitch_messages.append(
+                {"text": "LABYRINTH: DOOR UNLOCKED", "timer": 36}
+            )
+            self.save_game()
+            self._cancel_labyrinth()
+            return
+
+        if self.labyrinth_puzzle["attempts"] >= self.labyrinth_puzzle["max_attempts"]:
+            self.glitch_messages.append(
+                {"text": "LABYRINTH: ADAPTIVE RETRAINING", "timer": 36}
+            )
+            self.labyrinth_puzzle = self.labyrinth_engine.generate_puzzle()
+            self.labyrinth_input = ""
+        else:
+            self.labyrinth_input = ""
 
     def advance_level(self):
         if self.current_level_index + 1 < len(self.level_paths):
@@ -749,6 +815,27 @@ class Game:
             except pygame.error as e:
                 print(f"Failed to load music {music_path}: {e}")
 
+    def _process_player_shot(self):
+        score_delta, kills_delta, hit_any, fired = self.weapon_system.try_shoot(
+            time.time(), self.player, self.enemies, self.depth_buffer
+        )
+        self.score += score_delta
+        self.kills += kills_delta
+        if score_delta or kills_delta:
+            self.score_pulse = 10
+        if hit_any:
+            self.hit_marker = 6
+            self.chromatic_timer = max(self.chromatic_timer, 4)
+        if fired:
+            try:
+                if os.path.exists(EFFECT_FILES["laser"]):
+                    pygame.mixer.Sound(EFFECT_FILES["laser"]).play()
+            except (KeyError, pygame.error):
+                pass
+            self.screen_zoom = max(self.screen_zoom, 0.03)
+            self.chromatic_timer = max(self.chromatic_timer, 4)
+            self.cinematic_pulse = max(self.cinematic_pulse, 0.5)
+
     def handle_events(self):
         pygame.event.pump()
 
@@ -777,10 +864,15 @@ class Game:
                 elif self.state == "playing":
                     if event.key == pygame.K_1:
                         self.player.current_weapon_index = 0
+                        self.sniper_scoped = False
                     if event.key == pygame.K_2:
                         self.player.current_weapon_index = 1
+                        self.sniper_scoped = False
                     if event.key == pygame.K_3:
                         self.player.current_weapon_index = 2
+                    if event.key == pygame.K_4:
+                        self.player.current_weapon_index = 3
+                        self.sniper_scoped = False
                     if event.key == pygame.K_9:
                         if not hasattr(self, "_torch_toggle_lock"):
                             self._torch_toggle_lock = False
@@ -827,6 +919,17 @@ class Game:
                                 {"text": "TEMPORAL ECHO SPAWNED", "timer": 40}
                             )
 
+                elif self.state == "labyrinth":
+                    if event.key == pygame.K_ESCAPE:
+                        self._cancel_labyrinth()
+                    elif event.key == pygame.K_BACKSPACE:
+                        self.labyrinth_input = self.labyrinth_input[:-1]
+                    elif event.key == pygame.K_RETURN:
+                        self._submit_labyrinth_answer()
+                    elif event.unicode and event.unicode.isalnum():
+                        if len(self.labyrinth_input) < 14:
+                            self.labyrinth_input += event.unicode.upper()
+
                 elif self.state == "pause":
                     if event.key == pygame.K_ESCAPE:
                         self.state = "playing"
@@ -871,29 +974,49 @@ class Game:
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self.state == "playing" and not self.game_over:
-                    score_delta, kills_delta, hit_any, fired = self.weapon_system.try_shoot(
-                        time.time(), self.player, self.enemies, self.depth_buffer
-                    )
-                    self.score  += score_delta
-                    self.kills  += kills_delta
-                    if score_delta or kills_delta:
-                        self.score_pulse = 10
-                    if hit_any:
-                        self.hit_marker      = 6
-                        self.chromatic_timer = max(self.chromatic_timer, 4)
-                    if fired:
-                        try:
-                            if os.path.exists(EFFECT_FILES["laser"]):
-                                pygame.mixer.Sound(EFFECT_FILES["laser"]).play()
-                        except (KeyError, pygame.error):
-                            pass
-                        self.screen_zoom     = max(self.screen_zoom, 0.03)
-                        self.chromatic_timer = max(self.chromatic_timer, 4)
-                        self.cinematic_pulse = max(self.cinematic_pulse, 0.5)
+                    if self.player.get_weapon().name != "Machine Gun":
+                        self._process_player_shot()
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                if self.state == "playing" and not self.game_over:
+                    if self.player.get_weapon().name == "Sniper":
+                        self.sniper_scoped = True
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 3:
+                self.sniper_scoped = False
 
         return True
 
+    def _sniper_scope_active(self):
+        return (
+            self.sniper_scoped
+            and self.state in {"playing", "loop"}
+            and not self.game_over
+            and self.player.get_weapon().name == "Sniper"
+        )
+
+    def _apply_sniper_scope(self):
+        zoom = max(1.0, self.scope_zoom)
+        if zoom <= 1.01:
+            return
+        base = self.screen.copy()
+        target_w = max(1, int(WIDTH * zoom))
+        target_h = max(1, int(HEIGHT * zoom))
+        zoomed = pygame.transform.smoothscale(base, (target_w, target_h))
+        sx = (WIDTH - target_w) // 2
+        sy = (HEIGHT - target_h) // 2
+        self.screen.fill((0, 0, 0))
+        self.screen.blit(zoomed, (sx, sy))
+
     def update(self):
+        if self.state == "labyrinth":
+            if self.labyrinth_feedback_timer > 0:
+                self.labyrinth_feedback_timer -= 1
+            if self.labyrinth_engine.check_timeout(self.labyrinth_puzzle):
+                self.labyrinth_feedback = "TIMEOUT // ADAPTIVE SCORE REDUCED"
+                self.labyrinth_feedback_timer = 80
+                self.labyrinth_puzzle = self.labyrinth_engine.generate_puzzle()
+                self.labyrinth_input = ""
+            return
+
         if self.state not in {"playing", "loop"}:
             if self.state == "cutscene":
                 self.cutscene_time += 0.06
@@ -921,9 +1044,13 @@ class Game:
 
         if not self.game_over:
             keys = pygame.key.get_pressed()
+            mouse_buttons = pygame.mouse.get_pressed(3)
             mx   = self.mouse_dx
             self.mouse_dx      = 0
             self.last_mouse_dx = mx
+
+            if mouse_buttons[0] and self.player.get_weapon().name == "Machine Gun":
+                self._process_player_shot()
 
             self.time_rewind.record(self.player, self.enemies)
             self.temporal_echo.record(self.player)
@@ -939,6 +1066,8 @@ class Game:
                 return
 
             self.player.mouse_sensitivity = self.settings["sensitivity"]
+            if self._sniper_scope_active():
+                self.player.mouse_sensitivity *= 0.45
 
             effective_mx = -mx if reverse_controls else mx
             self.player.move(self.world, effective_mx, self.doors, speed_scale=effective_player)
@@ -1123,6 +1252,10 @@ class Game:
                     if distance < self.depth_buffer[ray_index]:
                         if enemy["alive"]:
                             sprite_size = max(1, int(size * scale))
+                            if enemy.get("boss", False):
+                                # Intentionally massive boss presentation (10-20x).
+                                boss_scale = 14.0
+                                sprite_size = max(1, int(sprite_size * boss_scale))
                             sprite = self.enemy_sprites.get(
                                 enemy.get("boss_kind") or enemy.get("type"), None
                             )
@@ -1315,6 +1448,60 @@ class Game:
                 animation_config=choice_animation,
             )
 
+        elif self.state == "labyrinth":
+            self.screen.fill((5, 8, 14))
+            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            overlay.fill((14, 28, 44, 220))
+            self.screen.blit(overlay, (0, 0))
+
+            panel = pygame.Rect(120, 90, WIDTH - 240, HEIGHT - 180)
+            pygame.draw.rect(self.screen, (24, 42, 68), panel, border_radius=12)
+            pygame.draw.rect(self.screen, (90, 180, 230), panel, 2, border_radius=12)
+
+            title_font = pygame.font.SysFont("arial", 34, bold=True)
+            body_font = pygame.font.SysFont("consolas", 24)
+            sub_font = pygame.font.SysFont("consolas", 19)
+
+            title = title_font.render("PROJECT LABYRINTH", True, (160, 245, 255))
+            self.screen.blit(title, (panel.x + 24, panel.y + 20))
+
+            if self.labyrinth_puzzle:
+                skill_line = (
+                    f"Skill {self.labyrinth_engine.skill_rating:.2f}  "
+                    f"Diff {self.labyrinth_puzzle['difficulty']}  "
+                    f"Run {self.labyrinth_engine.run_id}"
+                )
+                prompt_line = self.labyrinth_puzzle["prompt"]
+                attempts = (
+                    f"Attempts {self.labyrinth_puzzle['attempts']}/{self.labyrinth_puzzle['max_attempts']}"
+                )
+                remaining = max(
+                    0.0,
+                    self.labyrinth_puzzle["time_limit"] - (
+                        time.time() - self.labyrinth_puzzle.get("started_at", time.time())
+                    ),
+                )
+                timer_line = f"Time Remaining: {remaining:04.1f}s"
+
+                self.screen.blit(sub_font.render(skill_line, True, (150, 200, 220)), (panel.x + 24, panel.y + 78))
+                self.screen.blit(body_font.render(prompt_line, True, (220, 240, 255)), (panel.x + 24, panel.y + 132))
+                self.screen.blit(sub_font.render(attempts, True, (200, 220, 255)), (panel.x + 24, panel.y + 178))
+                self.screen.blit(sub_font.render(timer_line, True, (255, 190, 140)), (panel.x + 24, panel.y + 206))
+
+            input_box = pygame.Rect(panel.x + 24, panel.y + 246, panel.width - 48, 52)
+            pygame.draw.rect(self.screen, (10, 18, 30), input_box, border_radius=8)
+            pygame.draw.rect(self.screen, (100, 190, 240), input_box, 2, border_radius=8)
+            typed = body_font.render(self.labyrinth_input or "_", True, (180, 255, 190))
+            self.screen.blit(typed, (input_box.x + 14, input_box.y + 12))
+
+            feedback_color = (255, 150, 140) if "DENIED" in self.labyrinth_feedback or "INCORRECT" in self.labyrinth_feedback else (150, 240, 210)
+            if self.labyrinth_feedback and self.labyrinth_feedback_timer > 0:
+                feedback = sub_font.render(self.labyrinth_feedback, True, feedback_color)
+                self.screen.blit(feedback, (panel.x + 24, panel.y + 320))
+
+            controls = sub_font.render("ENTER submit  |  BACKSPACE edit  |  ESC abort", True, (140, 190, 220))
+            self.screen.blit(controls, (panel.x + 24, panel.y + panel.height - 48))
+
         else:
             scene = pygame.Surface((WIDTH, HEIGHT))
             scene.fill((6, 8, 14))
@@ -1348,12 +1535,13 @@ class Game:
             self.grenade_system.draw_grenades(scene, self.player, self.depth_buffer, self.anim_time)
             self.temporal_echo.draw(scene, self.player, self.depth_buffer)
             self.weapon_system.draw_bullets(scene)
-            if self.torch_enabled:
+            scope_active = self._sniper_scope_active()
+            if self.torch_enabled and not scope_active:
                 self.torch.draw_sprite(
                     scene,
                     bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
                 )
-            else:
+            elif not scope_active:
                 self.weapon_system.draw_weapon(
                     scene, self.player,
                     bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
@@ -1447,53 +1635,58 @@ class Game:
             if self.torch_enabled:
                 self.torch.draw_light(self.screen, self.anim_time)
 
-            pulse = self.hit_marker / 6 if self.hit_marker > 0 else 0.0
-            draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
-            draw_crosshair(self.screen, self.hit_marker > 0, pulse)
-            draw_level_hud(self.screen, self.hud_font, self.current_level_index, self.player)
-            draw_ammo(self.screen, self.hud_font, self.player)
-            draw_score(self.screen, self.hud_font, self.score, self.kills,
-                       self.score_pulse / 10 if self.score_pulse > 0 else 0.0)
+            if scope_active:
+                self._apply_sniper_scope()
+                draw_sniper_scope(self.screen)
+            else:
+                pulse = self.hit_marker / 6 if self.hit_marker > 0 else 0.0
+                draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
+                draw_crosshair(self.screen, self.hit_marker > 0, pulse)
+                draw_level_hud(self.screen, self.hud_font, self.current_level_index, self.player)
+                draw_ammo(self.screen, self.hud_font, self.player)
+                draw_score(self.screen, self.hud_font, self.score, self.kills,
+                           self.score_pulse / 10 if self.score_pulse > 0 else 0.0)
 
-            fps_text = self.hud_font.render(f"FPS: {self.fps_display}", True, (100, 255, 100))
-            self.screen.blit(fps_text, (WIDTH - 150, 20))
+                fps_text = self.hud_font.render(f"FPS: {self.fps_display}", True, (100, 255, 100))
+                self.screen.blit(fps_text, (WIDTH - 150, 20))
 
-            draw_weapon_info(self.screen, self.player)
-            self.grenade_system.draw_hud(self.screen, self.ui_phase)
-            minimap_alpha = 130 + math.sin(self.ui_phase) * 25
-            draw_minimap(
-                self.screen, self.world, self.player, self.enemies,
-                self.health_packs, minimap_alpha, self.rooms, ROOM_COLOR_MAP,
-            )
-            draw_overlay_messages(
-                self.screen, self.glitch_messages, flicker=abs(math.sin(self.ui_phase))
-            )
-            if self.room_timer > 0 and self.current_room:
-                draw_room_label(
-                    self.screen, self.current_room,
-                    self.room_timer / 90, abs(math.sin(self.ui_phase)),
+                draw_weapon_info(self.screen, self.player)
+                self.grenade_system.draw_hud(self.screen, self.ui_phase)
+                minimap_alpha = 130 + math.sin(self.ui_phase) * 25
+                draw_minimap(
+                    self.screen, self.world, self.player, self.enemies,
+                    self.health_packs, minimap_alpha, self.rooms, ROOM_COLOR_MAP,
+                    self.doors,
+                )
+                draw_overlay_messages(
+                    self.screen, self.glitch_messages, flicker=abs(math.sin(self.ui_phase))
+                )
+                if self.room_timer > 0 and self.current_room:
+                    draw_room_label(
+                        self.screen, self.current_room,
+                        self.room_timer / 90, abs(math.sin(self.ui_phase)),
+                    )
+
+                draw_temporal_hud(
+                    self.screen,
+                    self.time_dilation,
+                    self.time_rewind,
+                    self.temporal_echo,
+                    self.fracture_zones,
+                    self.ui_phase,
                 )
 
-            draw_temporal_hud(
-                self.screen,
-                self.time_dilation,
-                self.time_rewind,
-                self.temporal_echo,
-                self.fracture_zones,
-                self.ui_phase,
-            )
+                if self.hit_flash > 0:
+                    draw_hit_flash(self.screen)
 
-            if self.hit_flash > 0:
-                draw_hit_flash(self.screen)
+                if self.game_over:
+                    draw_game_over(self.screen, self.hud_font)
+                    keys = pygame.key.get_pressed()
+                    if keys[pygame.K_r] and self.restart_cooldown <= 0:
+                        self.reset_game()
 
-            if self.game_over:
-                draw_game_over(self.screen, self.hud_font)
-                keys = pygame.key.get_pressed()
-                if keys[pygame.K_r] and self.restart_cooldown <= 0:
-                    self.reset_game()
-
-            if self.state == "pause":
-                draw_pause(self.screen)
+                if self.state == "pause":
+                    draw_pause(self.screen)
 
         if self.time_frozen:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)

@@ -5,7 +5,7 @@ import pygame
 from core.settings import TILE
 
 
-def _collect_bounds(world, player, enemies, health_packs):
+def _collect_bounds(world, player, enemies, health_packs, doors=None):
     tiles = list(world.keys())
     if tiles:
         min_tx = min(x for x, _ in tiles) // TILE
@@ -22,6 +22,9 @@ def _collect_bounds(world, player, enemies, health_packs):
         extra_points.append((enemy["x"], enemy["y"]))
     for pack in health_packs:
         extra_points.append((pack["x"], pack["y"]))
+    if doors:
+        for dx, dy in doors.keys():
+            extra_points.append((dx + TILE // 2, dy + TILE // 2))
 
     for px, py in extra_points:
         tx = int(px // TILE)
@@ -34,7 +37,17 @@ def _collect_bounds(world, player, enemies, health_packs):
     return min_tx, min_ty, max_tx, max_ty
 
 
-def draw_minimap(screen, world, player, enemies, health_packs, alpha=140, rooms=None, room_colors=None):
+def draw_minimap(
+    screen,
+    world,
+    player,
+    enemies,
+    health_packs,
+    alpha=140,
+    rooms=None,
+    room_colors=None,
+    doors=None,
+):
     if not world:
         return
 
@@ -43,7 +56,7 @@ def draw_minimap(screen, world, player, enemies, health_packs, alpha=140, rooms=
     margin = 10
     padding = 6
 
-    min_tx, min_ty, max_tx, max_ty = _collect_bounds(world, player, enemies, health_packs)
+    min_tx, min_ty, max_tx, max_ty = _collect_bounds(world, player, enemies, health_packs, doors)
     tiles_w = max_tx - min_tx + 1
     tiles_h = max_ty - min_ty + 1
 
@@ -87,6 +100,17 @@ def draw_minimap(screen, world, player, enemies, health_packs, alpha=140, rooms=
             if room_colors and rkey in room_colors:
                 color = room_colors[rkey]
             pygame.draw.rect(surf, color, rect)
+
+    if doors:
+        for (dx, dy), door in doors.items():
+            tx = int(dx // TILE) - min_tx
+            ty = int(dy // TILE) - min_ty
+            cx = int(padding + tx * tile_size + tile_size / 2)
+            cy = int(padding + ty * tile_size + tile_size / 2)
+            is_open = bool(door.get("open", False))
+            color = (70, 220, 255) if is_open else (255, 210, 60)
+            radius = max(2, tile_size // 2)
+            pygame.draw.circle(surf, color, (cx, cy), radius, 1)
 
     def to_minimap(px, py):
         tx = (px / TILE - min_tx) * tile_size + padding

@@ -17,3 +17,20 @@ Or if you were ever meant to leave at all.
 **This is not a story about survival.**
 
 It’s a story about understanding something that should not exist.
+
+## Project LABYRINTH — Adaptive Puzzle Engine
+
+Doors now run through an adaptive puzzle protocol before unlocking.
+
+- Puzzles scale with inferred player intelligence (`skill_rating`) based on speed, streak, and accuracy.
+- Difficulty rises with smarter performance and softens after repeated mistakes.
+- The engine tracks mistake categories (`arithmetic`, `pattern`, `logic`) and changes future puzzle generation.
+- Every run gets a unique `run_id`, and generated puzzle signatures are not repeated inside that run.
+- LABYRINTH learning state is saved in `save.json` so adaptation persists across sessions.
+
+### In-Game Controls
+
+- `E` near a closed door: start LABYRINTH challenge.
+- `ENTER`: submit answer.
+- `BACKSPACE`: edit answer.
+- `ESC`: abort challenge and return to gameplay.

@@ -13,21 +13,21 @@ def create_enemy(enemy_type, x, y):
     )
 
     if enemy_type == "fast":
-        base.update(health=80,  speed=4,   radius=18, bob_speed=0.35, damage=8,
+        base.update(health=80,  speed=7,   radius=18, bob_speed=0.35, damage=8,
                     fire_range=0)   # fast enemies never shoot
 
     elif enemy_type == "tank":
-        base.update(health=200, speed=1.5, radius=28, bob_speed=0.18, damage=15,
+        base.update(health=200, speed=3, radius=28, bob_speed=0.18, damage=15,
                     fire_range=0)   # tank is pure melee
 
     elif enemy_type == "ranged":
-        base.update(health=90,  speed=1.2, radius=20, bob_speed=0.22, damage=6,
+        base.update(health=90,  speed=3, radius=20, bob_speed=0.22, damage=6,
                     fire_range=500, fire_cd_max=55,  bullet_speed=10,
                     bullet_damage=10, bullet_spread=0.03,
                     keep_distance=180)
 
     elif enemy_type == "normal":
-        base.update(health=100, speed=2,   radius=22, bob_speed=0.28, damage=10,
+        base.update(health=100, speed=4,   radius=22, bob_speed=0.28, damage=10,
                     fire_range=300, fire_cd_max=80,  bullet_speed=8,
                     bullet_damage=8, bullet_spread=0.06,
                     keep_distance=0)

@@ -22,9 +22,10 @@ class Player:
         self.invincibility_frames = 0
 
         self.weapons = [
-            Weapon("Pistol",  50, 10, 10, 0.02),
-            Weapon("Shotgun", 25,  5,  5, 0.10),
-            Weapon("Sniper", 100,  3,  3, 0.005),
+            Weapon("Pistol",  50, 10, 10, 0.02, fire_rate=0.25),
+            Weapon("Shotgun", 25,  5,  5, 0.10, fire_rate=0.7),
+            Weapon("Sniper", 100,  3,  3, 0.005, fire_rate=1.0),
+            Weapon("Machine Gun", 20, 60, 60, 0.035, fire_rate=0.01),
         ]
         self.current_weapon_index = 0
 

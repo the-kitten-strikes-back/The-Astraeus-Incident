@@ -116,8 +116,16 @@ def _draw_corridor(screen, t):
         pygame.draw.rect(screen, (brightness, brightness + 4, brightness + 14), rect, 1)
     for x in range(cx - 160, cx + 180, 80):
         la = int(120 + 80 * flicker)
-        pygame.draw.rect(screen, (la, la + 40, la + 80), (x - 18, 0, 36, 10))
-        pygame.draw.rect(screen, (la // 3, la // 3 + 10, la // 3 + 30), (x - 10, 10, 20, HEIGHT - 10))
+        pygame.draw.rect(
+            screen,
+            (clamp(la), clamp(la + 40), clamp(la + 80)),
+            (x - 18, 0, 36, 10),
+        )
+        pygame.draw.rect(
+            screen,
+            (clamp(la // 3), clamp(la // 3 + 10), clamp(la // 3 + 30)),
+            (x - 10, 10, 20, HEIGHT - 10),
+        )
     for y in range(40, HEIGHT - 40, HEIGHT - 80):
         pygame.draw.line(screen, (30, 40, 60), (0, y), (WIDTH, y), 2)
 
