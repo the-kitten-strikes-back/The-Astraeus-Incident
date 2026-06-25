@@ -56,6 +56,9 @@ def draw_menu(screen):
     settings_surf = body_font.render("[ S ]  SUIT CALIBRATION", True, (100, 130, 170))
     screen.blit(settings_surf, (WIDTH // 2 - settings_surf.get_width() // 2, sy + 146))
 
+    quit_surf = body_font.render("[ Q ]  ABORT MISSION", True, (180, 100, 100))
+    screen.blit(quit_surf, (WIDTH // 2 - quit_surf.get_width() // 2, sy + 170))
+
     controls = [
         "WASD: MOVE     MOUSE: AIM     LMB: FIRE     R: RELOAD / REWIND",
         "Q: TIME DILATION     G: TEMPORAL ECHO     E: DOOR",

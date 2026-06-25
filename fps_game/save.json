@@ -4,7 +4,7 @@
   "kills": 0,
   "health": 100,
   "sensitivity": 0.002,
-  "fullscreen": false,
+  "fullscreen": true,
   "ammo": [
     10,
     5,
@@ -12,17 +12,17 @@
     60
   ],
   "labyrinth": {
-    "run_id": "run-bootstrap",
-    "skill_rating": 0.7517,
-    "total_puzzles": 8,
-    "total_solved": 5,
-    "total_failed": 3,
-    "total_attempts": 11,
-    "streak": 2,
+    "run_id": "run-1782383339-5464",
+    "skill_rating": 0.6474,
+    "total_puzzles": 1,
+    "total_solved": 1,
+    "total_failed": 0,
+    "total_attempts": 1,
+    "streak": 1,
     "mistake_profile": {
       "arithmetic": 0,
-      "pattern": 1,
-      "logic": 3
+      "pattern": 0,
+      "logic": 0
     }
   }
 }

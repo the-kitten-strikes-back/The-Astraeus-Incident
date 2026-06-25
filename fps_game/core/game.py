@@ -852,6 +852,8 @@ class Game:
                         self.state                 = "cutscene"
                     elif event.key == pygame.K_s:
                         self.state = "settings"
+                    elif event.key == pygame.K_q:
+                        return False
 
                 elif self.state == "settings":
                     if event.key == pygame.K_UP:
@@ -935,6 +937,8 @@ class Game:
                         self.state = "playing"
                     if event.key == pygame.K_F11:
                         self.toggle_fullscreen()
+                    if event.key == pygame.K_q:
+                        self.state = "menu"
 
                 elif self.state == "cutscene":
                     if event.key == pygame.K_RETURN:

@@ -154,6 +154,9 @@ def draw_pause(screen):
     esc_surf = sub_font.render("[ ESC ]  RESUME", True, (100, 140, 180))
     screen.blit(esc_surf, (WIDTH // 2 - esc_surf.get_width() // 2, HEIGHT // 2 + 50))
 
+    end_surf = sub_font.render("[ Q ]  END GAME", True, (180, 100, 100))
+    screen.blit(end_surf, (WIDTH // 2 - end_surf.get_width() // 2, HEIGHT // 2 + 75))
+
 
 def draw_scifi_hud(screen, phase=0.0, alert=False):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
