@@ -384,3 +384,181 @@ def draw_compound_map(screen, map_data):
         panel.blit(label, (rect.x + 5, rect.y + 4))
 
     screen.blit(panel, (box.x, box.y))
+
+
+def _draw_point_text(screen, t, weak=False):
+    font = pygame.font.SysFont("courier", 150, bold=True)
+    text = random.choice(["ENEMY TERMINATED", "TARGET ELIMINATED", "BOSS DESTROYED", "POINT", "CRITICAL HIT"])
+    base = font.render(text, True, (245, 245, 250))
+
+    if weak:
+        k    = min(1.0, t / 0.06)
+        slam = 2.0 - 1.0 * (k * k * (3 - 2 * k))
+        alpha = int(150 + 80 * math.sin(t * 22))
+    else:
+        k    = min(1.0, t / 0.4)
+        slam = 2.0 - 1.0 * (k * k * (3 - 2 * k))
+        alpha = int(255 * min(1.0, t / 0.25))
+
+    w = max(1, int(base.get_width() * slam))
+    h = max(1, int(base.get_height() * slam))
+    surf = pygame.transform.scale(base, (w, h))
+
+    cx, cy = WIDTH // 2, HEIGHT // 2 + 30
+    gx, gy = animate_glitch(t, glitch_chance=0.3)
+
+    if not weak:
+        red   = surf.copy()
+        red.fill((255, 0, 90), special_flags=pygame.BLEND_RGBA_MULT)
+        red.set_alpha(int(alpha * 0.85))
+        cyan  = surf.copy()
+        cyan.fill((0, 200, 255), special_flags=pygame.BLEND_RGBA_MULT)
+        cyan.set_alpha(int(alpha * 0.85))
+        screen.blit(cyan, (cx - w // 2 - 6 + gx, cy - h // 2 + gy))
+        screen.blit(red,  (cx - w // 2 + 6 + gx, cy - h // 2 + gy))
+        tear = random.randint(-2, 2)
+        if random.random() < 0.35:
+            slice_surf = surf.copy()
+            slice_surf.set_alpha(int(alpha * 0.9))
+            screen.blit(slice_surf, (cx - w // 2 + gx + tear * 14, cy - h // 2 + gy + tear * 8))
+
+    surf.set_alpha(alpha)
+    screen.blit(surf, (cx - w // 2 + gx, cy - h // 2 + gy))
+
+
+def draw_boss_kill(screen, t, boss_sprite, bg=None, duration=4.2):
+    t        = max(0.0, t)
+    fire_t   = 0.4
+    impact_t = 1.6
+    fall_t   = 2.6
+    text_t   = 1.2
+
+    # --- frozen frame background with slight slow-mo zoom ---
+    if bg is not None:
+        zoom = 1.0 + 0.04 * min(1.0, t / 2.0)
+        z_w  = int(WIDTH * zoom)
+        z_h  = int(HEIGHT * zoom)
+        zx   = (WIDTH - z_w) // 2
+        zy   = (HEIGHT - z_h) // 2
+        try:
+            scaled = pygame.transform.smoothscale(bg, (z_w, z_h))
+            screen.blit(scaled, (zx, zy))
+        except Exception:
+            screen.blit(bg, (0, 0))
+    else:
+        screen.fill((4, 6, 12))
+
+    dim = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    dim.fill((0, 0, 0, 130))
+    screen.blit(dim, (0, 0))
+
+    slow = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    slow.fill((40, 120, 255, int(60 + 30 * math.sin(t * 6))))
+    screen.blit(slow, (0, 0))
+    _scanlines(screen, 0.5)
+
+    # --- geometry ---
+    bx = WIDTH // 2
+    by_stand  = int(HEIGHT * 0.40)
+    by_ground = int(HEIGHT * 0.70)
+
+    # --- glitchy POINT text (behind the action) ---
+    if t >= text_t:
+        _draw_point_text(screen, t - text_t)
+    elif t > 0.0 and random.random() < 0.4:
+        _draw_point_text(screen, 0.02, weak=True)
+
+    # ground shadow
+    shadow = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    pygame.draw.ellipse(shadow, (0, 0, 0, 130), (bx - 115, by_ground - 10, 230, 28))
+    screen.blit(shadow, (0, 0))
+
+    # --- boss knockdown ---
+    boss_angle = 0.0
+    by = by_stand
+    size_scale = 1.0
+    shake = 0
+    if t >= impact_t:
+        f = min(1.0, (t - impact_t) / (fall_t - impact_t))
+        f = 1 - (1 - f) * (1 - f)
+        boss_angle = -90 * f
+        by = by_stand + int((by_ground - by_stand) * f)
+        if f >= 1.0:
+            squash = max(0.0, 1 - (t - fall_t) * 2.5)
+            size_scale = 1.0 - 0.14 * squash
+            by += int(6 * squash)
+        if t < impact_t + 0.35:
+            shake = random.randint(-3, 3)
+
+    boss_size = int(250 * size_scale)
+    if boss_sprite is not None:
+        try:
+            base_img = pygame.transform.smoothscale(boss_sprite, (boss_size, boss_size))
+            img = pygame.transform.rotate(base_img, boss_angle)
+        except Exception:
+            img = pygame.Surface((boss_size, boss_size), pygame.SRCALPHA)
+            img.fill((120, 20, 30))
+        screen.blit(img, (bx - img.get_width() // 2 + shake, by - img.get_height() // 2))
+    else:
+        fallback = pygame.Surface((boss_size, boss_size), pygame.SRCALPHA)
+        pygame.draw.rect(fallback, (140, 30, 40), fallback.get_rect(), border_radius=14)
+        pygame.draw.rect(fallback, (200, 60, 70), fallback.get_rect(), 3, border_radius=14)
+        screen.blit(fallback, (bx - boss_size // 2 + shake, by - boss_size // 2))
+
+    # dust puff at landing
+    if t >= fall_t and t < fall_t + 0.6:
+        dt = t - fall_t
+        for i in range(6):
+            ang = math.pi * 0.25 + i * 0.1
+            pr = int((dt / 0.6) * (26 + i * 5))
+            px = bx + int(math.cos(ang) * pr * 2) - pr
+            py = by_ground - int((dt / 0.6) * 18)
+            dust = pygame.Surface((pr * 2, pr * 2), pygame.SRCALPHA)
+            pygame.draw.circle(dust, (150, 130, 120, max(0, int(90 * (1 - dt / 0.6)))), (pr, pr), pr)
+            screen.blit(dust, (px, py))
+
+    # --- slow-motion bullet ---
+    if t >= fire_t:
+        if t < impact_t:
+            s = (t - fire_t) / (impact_t - fire_t)
+        else:
+            s = 1.0
+        ease = s * s * (3 - 2 * s)
+        start_y = HEIGHT - 120
+        cur_y   = start_y + (by_stand - start_y) * ease
+        sway    = math.sin(s * math.pi * 3) * 8
+        bp = (bx + int(sway), int(cur_y))
+
+        for k in range(5, 0, -1):
+            s_prev = max(0.0, s - k * 0.035)
+            p_y = start_y + (by_stand - start_y) * (s_prev * s_prev * (3 - 2 * s_prev))
+            p_x = bx + int(math.sin(s_prev * math.pi * 3) * 8)
+            a   = max(0, 140 - k * 24)
+            tr  = pygame.Surface((12, 12), pygame.SRCALPHA)
+            pygame.draw.circle(tr, (255, 230, 120, a), (6, 6), 5)
+            screen.blit(tr, (p_x - 6, int(p_y) - 6))
+
+        glow = pygame.Surface((22, 22), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (255, 240, 160, 220), (11, 11), 9)
+        screen.blit(glow, (bp[0] - 11, bp[1] - 11))
+        pygame.draw.circle(screen, (255, 255, 255), bp, 4)
+
+    # --- impact flash + shockwave ---
+    if t >= impact_t and t < impact_t + 0.55:
+        ft = t - impact_t
+        flash = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        flash.fill((255, 255, 255, int(230 * (1 - ft / 0.55))))
+        screen.blit(flash, (0, 0))
+        ring_r = int(12 + 150 * (ft / 0.55))
+        ring   = pygame.Surface((ring_r * 2, ring_r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(ring, (255, 220, 120, int(200 * (1 - ft / 0.55))), (ring_r, ring_r), ring_r, 3)
+        screen.blit(ring, (bx - ring_r, by_stand - ring_r))
+
+    # --- corruption on top ---
+    _glitch_block(screen, 0.10)
+
+    # --- fade out at the end ---
+    if t > duration - 0.6:
+        out = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        out.fill((0, 0, 0, int(255 * min(1.0, (t - (duration - 0.6)) / 0.6))))
+        screen.blit(out, (0, 0))

@@ -25,6 +25,20 @@ WEAPON_IMAGE_MAP = {
     "Sniper": os.path.join(ASSETS_DIR, "sniper.png"),
     "Machine Gun": os.path.join(ASSETS_DIR, "machine_gun.png"),
 }
+
+# name -> (damage, ammo, max_ammo, spread, fire_rate, price)
+WEAPON_SPECS = {
+    "Pistol":       {"damage": 50, "ammo": 10, "max_ammo": 10, "spread": 0.02,  "fire_rate": 0.25, "price": 0},
+    "Shotgun":      {"damage": 25, "ammo": 5,  "max_ammo": 5,  "spread": 0.10,  "fire_rate": 0.7,  "price": 200},
+    "Sniper":       {"damage": 100, "ammo": 3, "max_ammo": 3,  "spread": 0.005, "fire_rate": 1.0,  "price": 400},
+    "Machine Gun":  {"damage": 20, "ammo": 60, "max_ammo": 60, "spread": 0.035, "fire_rate": 0.01, "price": 600},
+}
+
+WEAPON_ORDER = ["Pistol", "Shotgun", "Sniper", "Machine Gun"]
+LEVEL_POINTS = 100
+WEAPON_PICKUP_CHAR = "W"
+WEAPON_PICKUP_RANGE = 80
+WEAPON_PICKUP_OPTIONS = ["Shotgun", "Sniper", "Machine Gun"]
 ENEMY_IMG = os.path.join(ASSETS_DIR, "enemy.png")
 WALL_IMG  = os.path.join(ASSETS_DIR, "wall.png")
 DOOR_IMG  = os.path.join(ASSETS_DIR, "door.png")

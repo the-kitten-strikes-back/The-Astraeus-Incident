@@ -20,6 +20,11 @@ from core.settings import (
     LEVELS_DIR,
     WEAPON_DEFAULT_IMG,
     ENEMY_IMG,
+    WEAPON_ORDER,
+    WEAPON_SPECS,
+    WEAPON_PICKUP_CHAR,
+    WEAPON_PICKUP_RANGE,
+    LEVEL_POINTS,
     get_music_for_level,
 )
 from core.level import load_level
@@ -27,23 +32,25 @@ from player.player import Player
 from player.weapon import WeaponSystem
 from enemies.ai import update_enemies
 from systems.raycasting import raycast
-from systems.combat import draw_health_packs
+from systems.combat import draw_health_packs, draw_weapon_pickups
 from systems.ui import (
     draw_crosshair,
     draw_level_hud,
     draw_ammo,
     draw_score,
+    draw_points,
     draw_hit_flash,
     draw_game_over,
     draw_weapon_info,
     draw_pause,
+    draw_shop,
     draw_overlay_messages,
     draw_room_label,
     draw_scifi_hud,
     draw_sniper_scope,
 )
 from systems.minimap import draw_minimap
-from systems.cutscene import draw_cutscene
+from systems.cutscene import draw_cutscene, draw_boss_kill
 from systems.grenades import GrenadeSystem
 from systems.temporal import (
     TimeDilation,
@@ -137,6 +144,7 @@ class Game:
         self.world        = {}
         self.enemies      = []
         self.health_packs = []
+        self.weapon_pickups = []
         self.rooms        = {}
         self.doors        = {}
         self.enemy_bullets = []
@@ -146,6 +154,7 @@ class Game:
 
         self.score           = 0
         self.kills           = 0
+        self.points          = 0
         self.shake           = 0
         self.hit_flash       = 0
         self.hit_marker      = 0
@@ -173,6 +182,10 @@ class Game:
         self.cutscene_time   = 0.0
         self.cutscene_return_state = "playing"
         self.ending_choice   = ""
+        self.cinematic_time   = 0.0
+        self.cinematic_duration = 7.5
+        self.cinematic_bg     = None
+        self.cinematic_boss_sprite = None
         self.current_room    = ""
         self.current_room_key = ""
         self.room_timer      = 0
@@ -452,7 +465,7 @@ class Game:
         gradient = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
         for y in range(HALF_HEIGHT):
             ratio = y / HALF_HEIGHT
-            alpha = int(180 * (1.0 - ratio))
+            alpha = int(110 * (1.0 - ratio))
             pygame.draw.line(gradient, (0, 0, 0, alpha), (0, y), (WIDTH, y))
         surf.blit(gradient, (0, 0))
 
@@ -568,22 +581,25 @@ class Game:
                              (WIDTH - 8,   HALF_HEIGHT - 90 + i * 14), 1)
 
         grade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        grade.fill((4, 8, 18, 26))
-        pygame.draw.rect(grade, (0, 4, 12, 38), (0, 0, WIDTH, HALF_HEIGHT))
+        grade.fill((4, 8, 18, 14))
+        pygame.draw.rect(grade, (0, 4, 12, 18), (0, 0, WIDTH, HALF_HEIGHT))
 
         vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, 115), vignette.get_rect())
+        pygame.draw.rect(vignette, (0, 0, 0, 55), vignette.get_rect())
         inner = pygame.Rect(55, 38, WIDTH - 110, HEIGHT - 76)
         pygame.draw.rect(vignette, (0, 0, 0, 0), inner)
 
         return floor, grade, vignette
 
     def load_current_level(self):
-        self.world, self.enemies, self.health_packs, spawn, self.rooms, self.doors = load_level(
+        self.world, self.enemies, self.health_packs, self.weapon_pickups, spawn, self.rooms, self.doors = load_level(
             self.level_paths[self.current_level_index]
         )
         self.enemy_bullets = []
         self.player.x, self.player.y = spawn
+        self.player.clear_temp_weapons()
+        self.player.refresh_owned_ammo()
+        self.player.current_weapon_index = 0
         if self.floor_textures:
             self.floor_texture = self.floor_textures[self.current_level_index % len(self.floor_textures)]
         if self.ceiling_textures:
@@ -612,6 +628,14 @@ class Game:
         self.current_level_index = max(0, min(self.current_level_index, len(self.level_paths) - 1))
         self.score  = int(data.get("score", 0))
         self.kills  = int(data.get("kills", 0))
+        self.points = int(data.get("points", 0))
+        owned = data.get("owned_weapons")
+        if isinstance(owned, list):
+            self.player.owned_weapons = {"Pistol"}
+            for name in owned:
+                if name in WEAPON_SPECS:
+                    self.player.owned_weapons.add(name)
+        self.player.refresh_owned_ammo()
         self.player.health = int(data.get("health", self.player.max_health))
         self.player.health = max(0, min(self.player.health, self.player.max_health))
         sensitivity = data.get("sensitivity")
@@ -638,6 +662,8 @@ class Game:
             "level":       self.current_level_index,
             "score":       self.score,
             "kills":       self.kills,
+            "points":      self.points,
+            "owned_weapons": sorted(self.player.owned_weapons),
             "health":      self.player.health,
             "sensitivity": self.settings.get("sensitivity", 0.003),
             "fullscreen":  self.settings.get("fullscreen", True),
@@ -678,6 +704,41 @@ class Game:
                 self.doors[closest]["open"] = False
             else:
                 self._start_labyrinth_for_door(closest)
+
+    def _try_pickup_weapon(self):
+        closest      = None
+        closest_dist = WEAPON_PICKUP_RANGE + 1
+        for pickup in self.weapon_pickups:
+            dx   = pickup["x"] - self.player.x
+            dy   = pickup["y"] - self.player.y
+            dist = (dx * dx + dy * dy) ** 0.5
+            if dist < closest_dist:
+                closest      = pickup
+                closest_dist = dist
+        if closest is None:
+            return
+
+        name = closest["weapon"]
+        if self.player.owns_weapon(name):
+            self.player.restock_ammo(name)
+            self.glitch_messages.append({"text": f"{name.upper()}: AMMO RESTOCKED", "timer": 40})
+        else:
+            self.player.grant_temp_weapon(name)
+            self.glitch_messages.append({"text": f"{name.upper()} ACQUIRED // LEVEL ONLY", "timer": 50})
+        self.weapon_pickups.remove(closest)
+
+    def _buy_weapon(self, name):
+        if self.player.owns_weapon(name):
+            self.glitch_messages.append({"text": f"{name.upper()} ALREADY OWNED", "timer": 40})
+            return
+        price = WEAPON_SPECS[name]["price"]
+        if self.points < price:
+            self.glitch_messages.append({"text": f"INSUFFICIENT POINTS ({price} NEEDED)", "timer": 50})
+            return
+        self.points -= price
+        self.player.own_weapon(name)
+        self.glitch_messages.append({"text": f"{name.upper()} PURCHASED // PERMANENT", "timer": 60})
+        self.save_game()
 
     def _start_labyrinth_for_door(self, door_pos):
         self.labyrinth_target_door = door_pos
@@ -727,6 +788,10 @@ class Game:
 
     def advance_level(self):
         if self.current_level_index + 1 < len(self.level_paths):
+            self.points += LEVEL_POINTS
+            self.glitch_messages.append(
+                {"text": f"SECTOR CLEARED // +{LEVEL_POINTS} POINTS", "timer": 50}
+            )
             self.current_level_index += 1
             self.load_current_level()
             try:
@@ -767,8 +832,9 @@ class Game:
         self.temporal_echo  = TemporalEcho()
         self.fracture_zones = FractureZones()
         self.temporal_visuals = TemporalVisuals()
-        for weapon in self.player.weapons:
-            weapon.ammo = weapon.max_ammo
+        self.player.clear_temp_weapons()
+        self.player.refresh_owned_ammo()
+        self.player.current_weapon_index = 0
         self.weapon_system.reloading    = False
         self.weapon_system.reload_timer = 0
         self.save_game()
@@ -836,6 +902,28 @@ class Game:
             self.chromatic_timer = max(self.chromatic_timer, 4)
             self.cinematic_pulse = max(self.cinematic_pulse, 0.5)
 
+    def _check_boss_kill_cinematic(self):
+        if self.state != "playing":
+            return
+        for enemy in self.enemies:
+            if enemy.pop("killed_by_bullet", False) and enemy.get("boss"):
+                self._trigger_boss_cinematic(enemy)
+                break
+
+    def _trigger_boss_cinematic(self, enemy):
+        self.cinematic_time       = 0.0
+        self.cinematic_bg         = self.screen.copy()
+        self.cinematic_boss_sprite = self.enemy_sprites.get(
+            enemy.get("boss_kind") or enemy.get("type"), None
+        )
+        self.state                = "boss_cinematic"
+
+    def _exit_boss_cinematic(self):
+        self.cinematic_time       = 0.0
+        self.cinematic_bg         = None
+        self.cinematic_boss_sprite = None
+        self.state                = "playing"
+
     def handle_events(self):
         pygame.event.pump()
 
@@ -865,15 +953,15 @@ class Game:
 
                 elif self.state == "playing":
                     if event.key == pygame.K_1:
-                        self.player.current_weapon_index = 0
+                        self.player.select_weapon("Pistol")
                         self.sniper_scoped = False
                     if event.key == pygame.K_2:
-                        self.player.current_weapon_index = 1
+                        self.player.select_weapon("Shotgun")
                         self.sniper_scoped = False
                     if event.key == pygame.K_3:
-                        self.player.current_weapon_index = 2
+                        self.player.select_weapon("Sniper")
                     if event.key == pygame.K_4:
-                        self.player.current_weapon_index = 3
+                        self.player.select_weapon("Machine Gun")
                         self.sniper_scoped = False
                     if event.key == pygame.K_9:
                         if not hasattr(self, "_torch_toggle_lock"):
@@ -893,6 +981,7 @@ class Game:
                         self.toggle_fullscreen()
                     if event.key == pygame.K_e:
                         self._toggle_nearby_door()
+                        self._try_pickup_weapon()
                     if event.key == pygame.K_z:
                         self.grenade_system.try_throw("space",   self.player)
                     if event.key == pygame.K_x:
@@ -935,10 +1024,26 @@ class Game:
                 elif self.state == "pause":
                     if event.key == pygame.K_ESCAPE:
                         self.state = "playing"
+                    if event.key == pygame.K_i:
+                        self.state = "shop"
                     if event.key == pygame.K_F11:
                         self.toggle_fullscreen()
                     if event.key == pygame.K_q:
                         self.state = "menu"
+
+                elif self.state == "shop":
+                    if event.key == pygame.K_ESCAPE:
+                        self.state = "pause"
+                    if event.key == pygame.K_1:
+                        self._buy_weapon("Shotgun")
+                    if event.key == pygame.K_2:
+                        self._buy_weapon("Sniper")
+                    if event.key == pygame.K_3:
+                        self._buy_weapon("Machine Gun")
+
+                elif self.state == "boss_cinematic":
+                    if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                        self._exit_boss_cinematic()
 
                 elif self.state == "cutscene":
                     if event.key == pygame.K_RETURN:
@@ -956,8 +1061,11 @@ class Game:
                         self.cutscene_return_state = "loop"
                         self.state                 = "cutscene"
 
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.state == "cutscene":
-                self.state = self.cutscene_return_state
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.state == "boss_cinematic":
+                    self._exit_boss_cinematic()
+                elif self.state == "cutscene":
+                    self.state = self.cutscene_return_state
 
             if event.type == pygame.MOUSEMOTION:
                 if self.state == "playing" and not self.game_over:
@@ -1024,6 +1132,10 @@ class Game:
         if self.state not in {"playing", "loop"}:
             if self.state == "cutscene":
                 self.cutscene_time += 0.06
+            elif self.state == "boss_cinematic":
+                self.cinematic_time += 1.0 / FPS
+                if self.cinematic_time >= self.cinematic_duration:
+                    self._exit_boss_cinematic()
             return
 
         dil_world, dil_player = self.time_dilation.update()
@@ -1194,6 +1306,7 @@ class Game:
         self.player.update_invincibility()
         effective_time = self.time_scale * self.time_dilation.world_scale
         self.weapon_system.update_bullets(self.world, self.enemies, effective_time)
+        self._check_boss_kill_cinematic()
 
         self.anim_time  += 0.12 * self.time_scale
         move_amount      = self.player.move_amount
@@ -1258,7 +1371,7 @@ class Game:
                             sprite_size = max(1, int(size * scale))
                             if enemy.get("boss", False):
                                 # Intentionally massive boss presentation (10-20x).
-                                boss_scale = 14.0
+                                boss_scale = 100.0
                                 sprite_size = max(1, int(sprite_size * boss_scale))
                             sprite = self.enemy_sprites.get(
                                 enemy.get("boss_kind") or enemy.get("type"), None
@@ -1506,28 +1619,27 @@ class Game:
             controls = sub_font.render("ENTER submit  |  BACKSPACE edit  |  ESC abort", True, (140, 190, 220))
             self.screen.blit(controls, (panel.x + 24, panel.y + panel.height - 48))
 
+        elif self.state == "boss_cinematic":
+            draw_boss_kill(
+                self.screen,
+                self.cinematic_time,
+                self.cinematic_boss_sprite,
+                bg=self.cinematic_bg,
+                duration=self.cinematic_duration,
+            )
+
         else:
             scene = pygame.Surface((WIDTH, HEIGHT))
             scene.fill((6, 8, 14))
 
             scene.blit(self.ceiling_big, (0, 0))
 
-            self._blit_tiled(scene, self.floor_texture,
-                             pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
-            floor_grad = pygame.Surface((WIDTH, HALF_HEIGHT), pygame.SRCALPHA)
-            for _fy in range(HALF_HEIGHT):
-                _ratio = _fy / HALF_HEIGHT
-                _a     = int(100 + 130 * _ratio)
-                pygame.draw.line(floor_grad, (0, 0, 0, _a), (0, _fy), (WIDTH, _fy))
-            scene.blit(floor_grad, (0, HALF_HEIGHT))
+            scene.fill((2, 33, 41), pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
 
             if self.room_tint_alpha > 0:
                 tint = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
                 tint.fill((*self.room_tint, self.room_tint_alpha))
                 scene.blit(tint, (0, 0))
-
-            if self.interior_floor_overlay:
-                scene.blit(self.interior_floor_overlay, (0, HALF_HEIGHT))
 
             self.depth_buffer = raycast(
                 self.world, self.player, scene,
@@ -1536,6 +1648,10 @@ class Game:
             self.draw_enemies(scene)
             self._draw_enemy_bullets(scene)
             draw_health_packs(scene, self.health_packs, self.player, self.depth_buffer, self.anim_time)
+            draw_weapon_pickups(
+                scene, self.weapon_pickups, self.player, self.depth_buffer,
+                self.anim_time, self.weapon_system.images, self.hud_font,
+            )
             self.grenade_system.draw_grenades(scene, self.player, self.depth_buffer, self.anim_time)
             self.temporal_echo.draw(scene, self.player, self.depth_buffer)
             self.weapon_system.draw_bullets(scene)
@@ -1650,6 +1766,7 @@ class Game:
                 draw_ammo(self.screen, self.hud_font, self.player)
                 draw_score(self.screen, self.hud_font, self.score, self.kills,
                            self.score_pulse / 10 if self.score_pulse > 0 else 0.0)
+                draw_points(self.screen, self.hud_font, self.points)
 
                 fps_text = self.hud_font.render(f"FPS: {self.fps_display}", True, (100, 255, 100))
                 self.screen.blit(fps_text, (WIDTH - 150, 20))
@@ -1691,6 +1808,9 @@ class Game:
 
                 if self.state == "pause":
                     draw_pause(self.screen)
+
+                if self.state == "shop":
+                    draw_shop(self.screen, self.hud_font, self.points, self.player.owned_weapons)
 
         if self.time_frozen:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)

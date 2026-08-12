@@ -1,6 +1,6 @@
 import random
 
-from core.settings import TILE, ROOM_NAME_MAP
+from core.settings import TILE, ROOM_NAME_MAP, WEAPON_PICKUP_OPTIONS, WEAPON_PICKUP_CHAR
 from enemies.enemy import create_enemy
 
 
@@ -8,6 +8,7 @@ def load_level(path):
     world = {}
     enemies = []
     health_packs = []
+    weapon_pickups = []
     rooms = {}
     doors = {}
     player_spawn = (150, 150)
@@ -37,9 +38,15 @@ def load_level(path):
                 enemies.append(create_enemy("boss_final", x + TILE // 2, y + TILE // 2))
             elif char == "H":
                 health_packs.append({"x": x + TILE // 2, "y": y + TILE // 2})
+            elif char == WEAPON_PICKUP_CHAR:
+                weapon_pickups.append({
+                    "x": x + TILE // 2,
+                    "y": y + TILE // 2,
+                    "weapon": random.choice(WEAPON_PICKUP_OPTIONS),
+                })
             elif char in ROOM_NAME_MAP:
                 rooms[(x, y)] = char
             elif char == "X":
                 doors[(x, y)] = {"open": False}
 
-    return world, enemies, health_packs, player_spawn, rooms, doors
+    return world, enemies, health_packs, weapon_pickups, player_spawn, rooms, doors

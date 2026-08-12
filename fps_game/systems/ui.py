@@ -54,6 +54,10 @@ def draw_score(screen, font, score, kills, pulse=0.0):
     screen.blit(font.render(f"NEUTRALIZED  {kills}", True, color), (WIDTH - 200, 35))
 
 
+def draw_points(screen, font, points):
+    screen.blit(font.render(f"POINTS  {points}", True, (255, 220, 120)), (WIDTH - 200, 60))
+
+
 def draw_overlay_messages(screen, messages, flicker=0.0):
     if not messages:
         return
@@ -154,8 +158,59 @@ def draw_pause(screen):
     esc_surf = sub_font.render("[ ESC ]  RESUME", True, (100, 140, 180))
     screen.blit(esc_surf, (WIDTH // 2 - esc_surf.get_width() // 2, HEIGHT // 2 + 50))
 
+    shop_surf = sub_font.render("[ I ]  ITEM SHOP / INVENTORY", True, (255, 220, 120))
+    screen.blit(shop_surf, (WIDTH // 2 - shop_surf.get_width() // 2, HEIGHT // 2 + 75))
+
     end_surf = sub_font.render("[ Q ]  END GAME", True, (180, 100, 100))
-    screen.blit(end_surf, (WIDTH // 2 - end_surf.get_width() // 2, HEIGHT // 2 + 75))
+    screen.blit(end_surf, (WIDTH // 2 - end_surf.get_width() // 2, HEIGHT // 2 + 100))
+
+
+def draw_shop(screen, font, points, owned_weapons):
+    from core.settings import WEAPON_ORDER, WEAPON_SPECS
+
+    panel = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    panel.fill((0, 0, 0, 170))
+    screen.blit(panel, (0, 0))
+
+    title_font = pygame.font.SysFont("courier", 34, bold=True)
+    body_font  = pygame.font.SysFont("courier", 20)
+    sub_font   = pygame.font.SysFont("courier", 15)
+
+    cx = WIDTH // 2
+
+    title = title_font.render("// ARMORY //", True, (180, 210, 240))
+    screen.blit(title, (cx - title.get_width() // 2, 60))
+
+    points_line = body_font.render(f"POINTS: {points}", True, (255, 220, 120))
+    screen.blit(points_line, (cx - points_line.get_width() // 2, 110))
+
+    y = 160
+    owned_line = body_font.render("PISTOL  —  STARTING ISSUE  (OWNED)", True, (120, 255, 170))
+    screen.blit(owned_line, (cx - owned_line.get_width() // 2, y))
+    y += 34
+
+    purchasable = [n for n in WEAPON_ORDER if n != "Pistol"]
+    for idx, name in enumerate(purchasable, start=1):
+        spec  = WEAPON_SPECS[name]
+        owned = name in owned_weapons
+        if owned:
+            status = "OWNED"
+            color  = (120, 255, 170)
+        else:
+            status = f"BUY [{idx}]  {spec['price']} PTS"
+            color  = (160, 220, 255) if points >= spec["price"] else (120, 130, 150)
+
+        line = f"{name.upper():<12}  DMG {spec['damage']:>3}  AMMO {spec['ammo']:>2}  {status}"
+        surf  = body_font.render(line, True, color)
+        screen.blit(surf, (cx - surf.get_width() // 2, y))
+        y += 34
+
+    y += 20
+    note1 = sub_font.render("[ 1 ] [ 2 ] [ 3 ] BUY   |   [ ESC ] BACK TO PAUSE", True, (120, 160, 200))
+    screen.blit(note1, (cx - note1.get_width() // 2, y))
+    y += 22
+    note2 = sub_font.render("Purchased weapons are PERMANENT. Weapons found in a level last only for that level.", True, (100, 120, 150))
+    screen.blit(note2, (cx - note2.get_width() // 2, y))
 
 
 def draw_scifi_hud(screen, phase=0.0, alert=False):

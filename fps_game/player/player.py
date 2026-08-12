@@ -2,7 +2,7 @@ import math
 
 import pygame
 
-from core.settings import TILE
+from core.settings import TILE, WEAPON_SPECS, WEAPON_ORDER
 from utils.math_utils import is_wall
 from player.weapon import Weapon
 
@@ -21,19 +21,84 @@ class Player:
         self.health = self.max_health
         self.invincibility_frames = 0
 
-        self.weapons = [
-            Weapon("Pistol",  50, 10, 10, 0.02, fire_rate=0.25),
-            Weapon("Shotgun", 25,  5,  5, 0.10, fire_rate=0.7),
-            Weapon("Sniper", 100,  3,  3, 0.005, fire_rate=1.0),
-            Weapon("Machine Gun", 20, 60, 60, 0.035, fire_rate=0.01),
-        ]
+        self.weapons = []
+        for name in WEAPON_ORDER:
+            spec = WEAPON_SPECS[name]
+            self.weapons.append(
+                Weapon(name, spec["damage"], spec["ammo"], spec["max_ammo"],
+                       spec["spread"], fire_rate=spec["fire_rate"])
+            )
+        self.owned_weapons = {"Pistol"}
+        self.temp_weapons = set()
         self.current_weapon_index = 0
 
+    def available_weapons(self):
+        return [w for w in self.weapons if w.name in self.owned_weapons or w.name in self.temp_weapons]
+
+    def has_weapon(self, name):
+        return name in self.owned_weapons or name in self.temp_weapons
+
+    def owns_weapon(self, name):
+        return name in self.owned_weapons
+
+    def own_weapon(self, name):
+        weapon = self._get_weapon_by_name(name)
+        if weapon:
+            self.owned_weapons.add(name)
+            weapon.ammo = weapon.max_ammo
+
+    def grant_temp_weapon(self, name):
+        weapon = self._get_weapon_by_name(name)
+        if weapon:
+            self.temp_weapons.add(name)
+            weapon.ammo = weapon.max_ammo
+
+    def restock_ammo(self, name):
+        weapon = self._get_weapon_by_name(name)
+        if weapon:
+            weapon.ammo = weapon.max_ammo
+
+    def clear_temp_weapons(self):
+        for weapon in self.weapons:
+            if weapon.name in self.temp_weapons and weapon.name not in self.owned_weapons:
+                weapon.ammo = 0
+        self.temp_weapons.clear()
+
+    def refresh_owned_ammo(self):
+        for weapon in self.weapons:
+            if weapon.name in self.owned_weapons:
+                weapon.ammo = weapon.max_ammo
+            else:
+                weapon.ammo = 0
+
+    def _get_weapon_by_name(self, name):
+        for weapon in self.weapons:
+            if weapon.name == name:
+                return weapon
+        return None
+
+    def select_weapon(self, name):
+        available = self.available_weapons()
+        for i, weapon in enumerate(available):
+            if weapon.name == name:
+                self.current_weapon_index = i
+                return True
+        return False
+
     def switch_weapon(self, direction):
-        self.current_weapon_index = (self.current_weapon_index + direction) % len(self.weapons)
+        available = self.available_weapons()
+        if not available:
+            self.current_weapon_index = 0
+            return
+        self.current_weapon_index = (self.current_weapon_index + direction) % len(available)
 
     def get_weapon(self):
-        return self.weapons[self.current_weapon_index]
+        available = self.available_weapons()
+        if not available:
+            return self.weapons[0]
+        if self.current_weapon_index >= len(available):
+            self.current_weapon_index = 0
+        return available[self.current_weapon_index]
 
     def move(self, world, mouse_dx, doors=None, speed_scale: float = 1.0):
         keys = pygame.key.get_pressed()

@@ -26,10 +26,9 @@ def raycast(world, player, screen, textures=None, doors=None, door_texture=None)
                 depth_wall = depth
                 proj_height = (TILE * 300) / (depth + 0.0001)
 
-                # Sharp distance falloff — close walls bright, far walls very dark.
-                # This is critical for the "enclosed corridor" feel.
-                brightness = 600 / (1 + depth * depth * 0.00013)
-                brightness = max(18, min(600, brightness))
+                # Gentle distance falloff — close walls bright, far walls dim but visible.
+                brightness = 850 / (1 + depth * depth * 0.00005)
+                brightness = max(70, min(850, brightness))
 
                 if hit_door and door_texture is not None:
                     tex = door_texture

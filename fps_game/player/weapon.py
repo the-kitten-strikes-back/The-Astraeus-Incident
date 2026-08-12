@@ -109,6 +109,8 @@ class WeaponSystem:
                     if enemy["health"] <= 0:
                         enemy["alive"] = False
                         enemy["death_timer"] = 0
+                        if enemy.get("boss"):
+                            enemy["killed_by_bullet"] = True
                         kills_delta += 1
 
         self.recoil_velocity = -8
@@ -136,6 +138,8 @@ class WeaponSystem:
                         enemy["hurt_timer"] = 6
                         if enemy["health"] <= 0:
                             enemy["alive"] = False
+                            if enemy.get("boss"):
+                                enemy["killed_by_bullet"] = True
                         if bullet in self.bullets:
                             self.bullets.remove(bullet)
                         break
