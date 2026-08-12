@@ -188,7 +188,7 @@ class Game:
         self.cutscene_return_state = "playing"
         self.opening_cutscene_time = 0.0
         self.opening_cutscene_started = False
-        self.opening_cutscene_duration = 66.8
+        self.opening_cutscene_duration = 72.0
         self._opening_audio_manual = False
         self._opening_audio_started_at = 0.0
         self._opening_audio_second_started = False

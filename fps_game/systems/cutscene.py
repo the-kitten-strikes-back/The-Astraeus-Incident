@@ -43,13 +43,13 @@ def _glitch_block(surface, intensity):
 def _draw_opening_glitch_storm(surface, t, intensity=0.3):
     _scanlines(surface, intensity * 1.2, color=(10, 12, 24))
 
-    block_count = 1 + int(8 * intensity)
+    block_count = 2 + int(12 * intensity)
     for _ in range(block_count):
         if random.random() > min(1.0, intensity + 0.05):
             continue
-        gh = random.randint(8, max(10, int(80 * intensity)))
+        gh = random.randint(8, max(12, int(110 * intensity)))
         gy = random.randint(0, max(0, HEIGHT - gh))
-        gw = random.randint(80, max(90, int(500 * intensity)))
+        gw = random.randint(80, max(120, int(720 * intensity)))
         gx = random.randint(0, max(0, WIDTH - gw))
         tint = random.choice([
             (70, 170, 220),
@@ -64,9 +64,9 @@ def _draw_opening_glitch_storm(surface, t, intensity=0.3):
 
     if intensity > 0.12:
         tear = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        for y in range(0, HEIGHT, 5):
-            wobble = int(math.sin(t * 11 + y * 0.07) * (2 + intensity * 6))
-            alpha = int(18 * intensity + 8 * (y % 2))
+        for y in range(0, HEIGHT, 4):
+            wobble = int(math.sin(t * 11 + y * 0.07) * (3 + intensity * 8))
+            alpha = int(22 * intensity + 10 * (y % 2))
             pygame.draw.line(tear, (80, 190, 255, alpha), (0 + wobble, y), (WIDTH + wobble, y), 1)
         surface.blit(tear, (0, 0))
 
@@ -183,30 +183,59 @@ def _draw_opening_console(surface, t, zoom=1.0):
         surface.blit(panel, (0, 0))
 
 
-def _draw_opening_word_stack(surface, t):
-    words = ["TIME", "IS", "ON", "YOUR", "SIDE."]
-    # Time windows are intentionally staggered to give each word a violent pop-in.
-    windows = [0.0, 0.9, 1.45, 2.0, 2.55]
-    base_y = [180, 325, 470, 620, 770]
-    sizes = [132, 126, 126, 126, 132]
-    center_x = WIDTH // 2
-    for idx, word in enumerate(words):
-        local = max(0.0, t - windows[idx])
-        if local <= 0:
-            continue
-        pop = min(1.0, local / 0.55)
-        scale = 0.2 + 1.0 * (pop ** 0.55)
-        wobble = int(math.sin(t * 5.2 + idx) * (12 * (1 - pop)))
-        font = pygame.font.SysFont("courier", max(10, int(sizes[idx] * scale)), bold=True)
-        text = font.render(word, True, (210, 235, 255))
-        text2 = font.render(word, True, (90, 190, 255))
-        gx = center_x - text.get_width() // 2 + wobble
-        gy = int(base_y[idx] - text.get_height() // 2 - 10 * (1 - pop))
-        glow = text2.copy()
-        glow.set_alpha(int(80 + 100 * pop))
-        surface.blit(glow, (gx + 4, gy + 3))
-        text.set_alpha(int(255 * pop))
-        surface.blit(text, (gx, gy))
+def _draw_opening_word_burst(surface, word, t, duration=0.9):
+    surface.fill((0, 0, 0))
+
+    if t < 0.0 or t > duration:
+        return
+
+    pop = min(1.0, t / 0.18)
+    hold = min(1.0, max(0.0, (t - 0.18) / 0.22))
+    collapse = max(0.0, 1.0 - max(0.0, t - 0.66) / 0.24)
+    intensity = min(1.0, pop * 0.9 + hold * 0.6)
+
+    base_font_size = {
+        "TIME": 240,
+        "IS": 280,
+        "ON": 280,
+        "YOUR": 220,
+        "SIDE.": 240,
+    }.get(word, 240)
+    font = pygame.font.SysFont("courier", max(28, int(base_font_size * (0.38 + 0.75 * pop))), bold=True)
+    main = font.render(word, True, (225, 245, 255))
+    glow = font.render(word, True, (85, 185, 255))
+
+    # Push the word to near full-screen scale, then let it settle into a hard black reset.
+    max_w = int(WIDTH * 0.94)
+    max_h = int(HEIGHT * 0.42)
+    scale = min(max_w / max(1, main.get_width()), max_h / max(1, main.get_height()))
+    scale *= 0.88 + 0.28 * pop
+    scaled_main = pygame.transform.smoothscale(main, (max(1, int(main.get_width() * scale)), max(1, int(main.get_height() * scale))))
+    scaled_glow = pygame.transform.smoothscale(glow, scaled_main.get_size())
+
+    gx = WIDTH // 2 - scaled_main.get_width() // 2 + int(math.sin(t * 10) * (10 * (1 - hold)))
+    gy = HEIGHT // 2 - scaled_main.get_height() // 2 + int(math.cos(t * 8) * (8 * (1 - hold)))
+
+    burst = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    burst.fill((0, 0, 0))
+    glow_layer = scaled_glow.copy()
+    glow_layer.set_alpha(int(120 + 100 * intensity))
+    main_layer = scaled_main.copy()
+    main_layer.set_alpha(int(255 * pop * collapse))
+    burst.blit(glow_layer, (gx + 8, gy + 8))
+    burst.blit(main_layer, (gx, gy))
+
+    if hold > 0.15:
+        for _ in range(18):
+            rx = random.randint(0, WIDTH)
+            ry = random.randint(max(0, gy - 30), min(HEIGHT - 1, gy + scaled_main.get_height() + 30))
+            rw = random.randint(24, 140)
+            rh = random.randint(2, 8)
+            col = random.choice([(70, 190, 255, 45), (140, 90, 255, 38), (240, 80, 255, 26)])
+            pygame.draw.rect(burst, col, (rx, ry, rw, rh))
+
+    _scanlines(burst, 0.2 + 0.45 * intensity, color=(8, 10, 18))
+    surface.blit(burst, (0, 0))
 
 
 def _draw_opening_ship_break(surface, t):
@@ -220,7 +249,6 @@ def _draw_opening_ship_break(surface, t):
     center = WIDTH * 0.52
     impact = max(0.0, 1.0 - min(1.0, abs(ship_x - center) / 520.0))
     impact = impact ** 1.8
-    _draw_opening_word_stack(frag, 3.0)
     for i in range(20):
         px = random.randint(0, WIDTH)
         py = random.randint(110, HEIGHT - 80)
@@ -240,14 +268,14 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
     screen.fill((0, 0, 0))
 
     audio_end = 24.74
-    words_start = audio_end + 0.2
-    ship_start = words_start + 4.8
-    console_start = ship_start + 7.1
+    words_start = audio_end + 0.35
+    ship_start = words_start + 7.2
+    console_start = ship_start + 7.6
     log_start = console_start + 6.8
     final_glitch_start = log_start + 18.8
-    end_time = final_glitch_start + 4.0
+    end_time = final_glitch_start + 6.2
 
-    glitch_strength = min(1.0, 0.03 + (t / audio_end) ** 1.6)
+    glitch_strength = min(1.0, 0.05 + (t / audio_end) ** 1.75)
     _draw_opening_glitch_storm(screen, t, intensity=min(1.0, glitch_strength))
 
     dull = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -256,8 +284,8 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
     screen.blit(dull, (0, 0))
 
     if t < audio_end:
-        if gun_sprite is not None and t > 0.85:
-            gun_t = t - 0.85
+        if gun_sprite is not None and t > 1.35:
+            gun_t = t - 1.35
             angle = -gun_t * 24.0
             scale = 0.82 + 0.04 * math.sin(t * 2.1)
             gun = pygame.transform.rotozoom(gun_sprite, angle, scale)
@@ -274,10 +302,25 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
         pass
 
     elif t < ship_start:
-        _draw_opening_word_stack(screen, t - words_start)
+        word_times = [
+            ("TIME", 0.0, 1.15),
+            ("IS", 1.55, 1.00),
+            ("ON", 2.90, 1.00),
+            ("YOUR", 4.25, 1.05),
+            ("SIDE.", 5.65, 1.15),
+        ]
+        local = t - words_start
+        shown = False
+        for word, start, duration in word_times:
+            if start <= local < start + duration:
+                _draw_opening_word_burst(screen, word, local - start, duration=duration)
+                shown = True
+                break
+        if not shown:
+            screen.fill((0, 0, 0))
 
     elif t < console_start:
-        _draw_opening_word_stack(screen, 3.2)
+        _draw_opening_word_burst(screen, "SIDE.", 0.82, duration=1.15)
         _draw_opening_ship_break(screen, t - ship_start + 4.0)
         # As the ship passes, tear the words apart with extra debris and shake.
         drift = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -347,12 +390,12 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
                 surf = font.render(line, True, (220, 240, 255))
                 surf.set_alpha(int(255 * min(1.0, local / 0.45)))
                 screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2 + idx * 38))
-        _draw_opening_glitch_storm(screen, t, intensity=0.55)
+        _draw_opening_glitch_storm(screen, t, intensity=0.8)
 
     elif t < end_time:
-        _draw_opening_glitch_storm(screen, t, intensity=0.95)
+        _draw_opening_glitch_storm(screen, t, intensity=1.0)
         fade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        fade.fill((0, 0, 0, int(255 * min(1.0, (t - final_glitch_start) / 2.2))))
+        fade.fill((0, 0, 0, int(255 * min(1.0, (t - final_glitch_start) / 3.0))))
         screen.blit(fade, (0, 0))
 
     else:
