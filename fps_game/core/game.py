@@ -50,7 +50,7 @@ from systems.ui import (
     draw_sniper_scope,
 )
 from systems.minimap import draw_minimap
-from systems.cutscene import draw_cutscene, draw_boss_kill
+from systems.cutscene import draw_cutscene, draw_boss_kill, draw_opening_cutscene
 from systems.grenades import GrenadeSystem
 from systems.temporal import (
     TimeDilation,
@@ -97,6 +97,10 @@ class Game:
         pygame.mouse.set_visible(False)
 
         self.hud_font = pygame.font.SysFont("arial", 22)
+        self.base_dir = os.path.dirname(os.path.dirname(__file__))
+        self.opening_audio_1 = os.path.join(self.base_dir, "assets", "sounds", "effects", "opening.mp3")
+        self.opening_audio_2 = os.path.join(self.base_dir, "assets", "sounds", "effects", "second.mp3")
+        self.opening_weapon_path = os.path.join(self.base_dir, "assets", "images", "openingweapon.png")
 
         self.current_music_level = -1
         self.music_enabled = True
@@ -104,6 +108,7 @@ class Game:
         self.torch = Torch(radius=420)
         self.torch.load_sprite(TORCH_IMG)
         self.weapon_image = pygame.image.load(WEAPON_DEFAULT_IMG).convert_alpha()
+        self.opening_weapon_sprite = pygame.image.load(self.opening_weapon_path).convert_alpha()
         self.enemy_sprite = pygame.image.load(ENEMY_IMG).convert_alpha()
         self.enemy_sprites  = self._load_enemy_sprites()
         self.wall_textures  = self._load_wall_textures()
@@ -181,6 +186,14 @@ class Game:
         self.cutscene_index  = 0
         self.cutscene_time   = 0.0
         self.cutscene_return_state = "playing"
+        self.opening_cutscene_time = 0.0
+        self.opening_cutscene_started = False
+        self.opening_cutscene_duration = 66.8
+        self._opening_audio_manual = False
+        self._opening_audio_started_at = 0.0
+        self._opening_audio_second_started = False
+        self.opening_audio_1_len = 3.317531
+        self.opening_audio_2_len = 21.420406
         self.ending_choice   = ""
         self.cinematic_time   = 0.0
         self.cinematic_duration = 7.5
@@ -369,7 +382,8 @@ class Game:
             os.path.dirname(os.path.dirname(__file__)), "save.json"
         )
         self.load_save()
-        self.load_current_level()
+        self.load_current_level(play_music=False)
+        self.state = "opening_cutscene"
         self.save_game()
 
     def _load_wall_textures(self):
@@ -591,7 +605,7 @@ class Game:
 
         return floor, grade, vignette
 
-    def load_current_level(self):
+    def load_current_level(self, play_music=True):
         self.world, self.enemies, self.health_packs, self.weapon_pickups, spawn, self.rooms, self.doors = load_level(
             self.level_paths[self.current_level_index]
         )
@@ -613,7 +627,8 @@ class Game:
         self.time_rewind._history.clear()
         self.temporal_echo._recording.clear()
         self.fracture_zones.leave_room()
-        self.play_music_for_level(self.current_level_index)
+        if play_music:
+            self.play_music_for_level(self.current_level_index)
 
     def load_save(self):
         if not os.path.exists(self.save_path):
@@ -881,6 +896,56 @@ class Game:
             except pygame.error as e:
                 print(f"Failed to load music {music_path}: {e}")
 
+    def _start_opening_cutscene_audio(self):
+        if self.opening_cutscene_started:
+            return
+        self.opening_cutscene_started = True
+        self._opening_audio_manual = False
+        self._opening_audio_second_started = False
+        self._opening_audio_started_at = time.time()
+
+        if not pygame.mixer.get_init():
+            return
+
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(self.opening_audio_1)
+            pygame.mixer.music.set_volume(0.72)
+            pygame.mixer.music.play()
+            pygame.mixer.music.queue(self.opening_audio_2)
+        except pygame.error:
+            try:
+                self._opening_audio_manual = True
+                self._opening_audio_sound_1 = pygame.mixer.Sound(self.opening_audio_1)
+                self._opening_audio_sound_2 = pygame.mixer.Sound(self.opening_audio_2)
+                self._opening_audio_channel_1 = self._opening_audio_sound_1.play()
+                if self._opening_audio_channel_1 is not None:
+                    self._opening_audio_channel_1.set_volume(0.72)
+            except pygame.error:
+                self._opening_audio_manual = False
+
+    def _update_opening_cutscene_audio(self):
+        if not self._opening_audio_manual:
+            return
+        elapsed = time.time() - self._opening_audio_started_at
+        if not self._opening_audio_second_started and elapsed >= self.opening_audio_1_len - 0.03:
+            try:
+                self._opening_audio_channel_2 = self._opening_audio_sound_2.play()
+                if self._opening_audio_channel_2 is not None:
+                    self._opening_audio_channel_2.set_volume(0.72)
+                self._opening_audio_second_started = True
+            except pygame.error:
+                self._opening_audio_second_started = True
+
+    def _finish_opening_cutscene(self):
+        try:
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+        except pygame.error:
+            pass
+        self.play_music_for_level(self.current_level_index)
+        self.state = "playing"
+
     def _process_player_shot(self):
         score_delta, kills_delta, hit_any, fired = self.weapon_system.try_shoot(
             time.time(), self.player, self.enemies, self.depth_buffer
@@ -950,6 +1015,9 @@ class Game:
                         self.settings["sensitivity"] = max(0.001, self.settings["sensitivity"] - 0.001)
                     if event.key == pygame.K_ESCAPE:
                         self.state = "menu"
+
+                elif self.state == "opening_cutscene":
+                    pass
 
                 elif self.state == "playing":
                     if event.key == pygame.K_1:
@@ -1119,6 +1187,14 @@ class Game:
         self.screen.blit(zoomed, (sx, sy))
 
     def update(self):
+        if self.state == "opening_cutscene":
+            self._start_opening_cutscene_audio()
+            self._update_opening_cutscene_audio()
+            self.opening_cutscene_time += 0.06
+            if self.opening_cutscene_time >= self.opening_cutscene_duration:
+                self._finish_opening_cutscene()
+            return
+
         if self.state == "labyrinth":
             if self.labyrinth_feedback_timer > 0:
                 self.labyrinth_feedback_timer -= 1
@@ -1492,6 +1568,9 @@ class Game:
             pygame.draw.rect(self.screen, (50, 50, 50),    (0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
             from systems.menu import draw_menu
             draw_menu(self.screen)
+
+        elif self.state == "opening_cutscene":
+            draw_opening_cutscene(self.screen, self.opening_cutscene_time, self.opening_weapon_sprite)
 
         elif self.state == "settings":
             self.screen.fill((30, 30, 30))

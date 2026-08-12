@@ -40,6 +40,325 @@ def _glitch_block(surface, intensity):
         surface.blit(overlay, (0, 0))
 
 
+def _draw_opening_glitch_storm(surface, t, intensity=0.3):
+    _scanlines(surface, intensity * 1.2, color=(10, 12, 24))
+
+    block_count = 1 + int(8 * intensity)
+    for _ in range(block_count):
+        if random.random() > min(1.0, intensity + 0.05):
+            continue
+        gh = random.randint(8, max(10, int(80 * intensity)))
+        gy = random.randint(0, max(0, HEIGHT - gh))
+        gw = random.randint(80, max(90, int(500 * intensity)))
+        gx = random.randint(0, max(0, WIDTH - gw))
+        tint = random.choice([
+            (70, 170, 220),
+            (130, 90, 220),
+            (180, 90, 255),
+            (60, 230, 255),
+        ])
+        ga = random.randint(20, max(35, int(95 * intensity)))
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        pygame.draw.rect(overlay, (*tint, ga), (gx, gy, gw, gh))
+        surface.blit(overlay, (0, 0))
+
+    if intensity > 0.12:
+        tear = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        for y in range(0, HEIGHT, 5):
+            wobble = int(math.sin(t * 11 + y * 0.07) * (2 + intensity * 6))
+            alpha = int(18 * intensity + 8 * (y % 2))
+            pygame.draw.line(tear, (80, 190, 255, alpha), (0 + wobble, y), (WIDTH + wobble, y), 1)
+        surface.blit(tear, (0, 0))
+
+
+def _draw_opening_ship(surface, x, y, scale=1.0, angle=0.0, alpha=255):
+    ship = pygame.Surface((520, 220), pygame.SRCALPHA)
+    hull = [(32, 110), (110, 68), (290, 55), (452, 92), (498, 112), (452, 132), (290, 165), (110, 152)]
+    nose = [(28, 110), (92, 86), (92, 134)]
+    wing_left = [(120, 82), (42, 48), (12, 56), (62, 100)]
+    wing_right = [(120, 138), (42, 172), (12, 164), (62, 120)]
+    engine = pygame.Rect(452, 95, 42, 30)
+
+    pygame.draw.polygon(ship, (12, 18, 40), hull)
+    pygame.draw.polygon(ship, (80, 180, 255), hull, 3)
+    pygame.draw.polygon(ship, (90, 40, 150), nose)
+    pygame.draw.polygon(ship, (130, 80, 220), wing_left)
+    pygame.draw.polygon(ship, (130, 80, 220), wing_right)
+    pygame.draw.rect(ship, (30, 120, 200), engine)
+
+    for i in range(4):
+        pygame.draw.line(ship, (70, 220, 255), (122 + i * 58, 92), (122 + i * 58, 128), 2)
+        pygame.draw.circle(ship, (60, 240, 255), (170 + i * 40, 111), 4)
+
+    glow = pygame.Surface((520, 220), pygame.SRCALPHA)
+    for r in range(8, 90, 10):
+        pygame.draw.ellipse(glow, (90, 150, 255, max(0, 80 - r // 2)), pygame.Rect(40 - r // 3, 78 - r // 4, 160 + r, 66 + r // 2), 2)
+    ship.blit(glow, (0, 0))
+
+    if angle:
+        ship = pygame.transform.rotozoom(ship, angle, scale)
+    elif scale != 1.0:
+        ship = pygame.transform.smoothscale(
+            ship,
+            (max(1, int(ship.get_width() * scale)), max(1, int(ship.get_height() * scale))),
+        )
+    ship.set_alpha(alpha)
+    rect = ship.get_rect(center=(x, y))
+    surface.blit(ship, rect.topleft)
+
+
+def _draw_opening_console(surface, t, zoom=1.0):
+    panel = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    panel.fill((1, 2, 8))
+
+    cx, cy = WIDTH // 2, HEIGHT // 2
+    console = pygame.Rect(cx - 280, cy - 130, 560, 260)
+    screen = pygame.Rect(console.x + 48, console.y + 38, console.width - 96, console.height - 88)
+
+    flicker = 0.65 + 0.35 * math.sin(t * 8.0)
+    glow_a = int(70 + 110 * max(0.0, flicker))
+
+    pygame.draw.rect(panel, (8, 18, 35), console, border_radius=16)
+    pygame.draw.rect(panel, (70, 170, 240), console, 3, border_radius=16)
+    pygame.draw.rect(panel, (15, 35, 60), screen, border_radius=8)
+    pygame.draw.rect(panel, (100, 220, 255), screen, 2, border_radius=8)
+
+    for i in range(5):
+        y = screen.y + 18 + i * 28
+        line_alpha = int(20 + 20 * math.sin(t * 4 + i))
+        pygame.draw.line(panel, (40, 160, 220, line_alpha), (screen.x + 12, y), (screen.right - 12, y), 1)
+
+    title_font = pygame.font.SysFont("courier", 26, bold=True)
+    tiny_font = pygame.font.SysFont("courier", 18)
+    title = title_font.render("ASTRAEUS CONSOLE", True, (170, 235, 255))
+    title.set_alpha(glow_a)
+    panel.blit(title, (console.x + 20, console.y + 16))
+
+    flash = pygame.Surface((screen.width, screen.height), pygame.SRCALPHA)
+    flash.fill((70, 180, 255, int(18 + 16 * flicker)))
+    panel.blit(flash, (screen.x, screen.y))
+
+    for i in range(8):
+        bar_w = int((screen.width - 32) * (0.35 + 0.55 * abs(math.sin(t * 1.4 + i * 0.9))))
+        bar_y = screen.y + 16 + i * 22
+        pygame.draw.rect(panel, (80, 220, 255), (screen.x + 16, bar_y, bar_w, 6))
+        pygame.draw.rect(panel, (180, 80, 255), (screen.x + 16, bar_y + 8, bar_w // 2, 2))
+
+    for i, label in enumerate(["LINK", "POWER", "TEMP", "CORE", "ECHO"]):
+        lbl = tiny_font.render(label, True, (120, 190, 230))
+        panel.blit(lbl, (console.right - 140, console.y + 18 + i * 22))
+
+    # screen text block
+    text = [
+        "log. 001. WAKE UP...",
+        "",
+        "THERES SOMETHING...",
+        "SOMETHING INSIDE THE CORE.",
+        "I think - i think its keeping the ship alive.",
+    ]
+    text_font = pygame.font.SysFont("courier", 23, bold=True)
+    y = screen.y + 92
+    for idx, line in enumerate(text):
+        if not line:
+            y += 12
+            continue
+        line_surf = text_font.render(line, True, (205, 240, 255))
+        line_surf.set_alpha(int(150 + 80 * math.sin(t * 6 + idx)))
+        panel.blit(line_surf, (screen.x + 20, y))
+        y += 28
+
+    glow = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    glow.fill((25, 70, 120, int(14 + 24 * flicker)))
+    panel.blit(glow, (0, 0))
+    _scanlines(panel, 0.3, color=(70, 100, 140))
+    _glitch_block(panel, 0.22)
+
+    if zoom != 1.0:
+        new_w = max(1, int(WIDTH * zoom))
+        new_h = max(1, int(HEIGHT * zoom))
+        panel = pygame.transform.smoothscale(panel, (new_w, new_h))
+        surface.fill((0, 0, 0))
+        surface.blit(panel, ((WIDTH - new_w) // 2, (HEIGHT - new_h) // 2))
+    else:
+        surface.blit(panel, (0, 0))
+
+
+def _draw_opening_word_stack(surface, t):
+    words = ["TIME", "IS", "ON", "YOUR", "SIDE."]
+    # Time windows are intentionally staggered to give each word a violent pop-in.
+    windows = [0.0, 0.9, 1.45, 2.0, 2.55]
+    base_y = [180, 325, 470, 620, 770]
+    sizes = [132, 126, 126, 126, 132]
+    center_x = WIDTH // 2
+    for idx, word in enumerate(words):
+        local = max(0.0, t - windows[idx])
+        if local <= 0:
+            continue
+        pop = min(1.0, local / 0.55)
+        scale = 0.2 + 1.0 * (pop ** 0.55)
+        wobble = int(math.sin(t * 5.2 + idx) * (12 * (1 - pop)))
+        font = pygame.font.SysFont("courier", max(10, int(sizes[idx] * scale)), bold=True)
+        text = font.render(word, True, (210, 235, 255))
+        text2 = font.render(word, True, (90, 190, 255))
+        gx = center_x - text.get_width() // 2 + wobble
+        gy = int(base_y[idx] - text.get_height() // 2 - 10 * (1 - pop))
+        glow = text2.copy()
+        glow.set_alpha(int(80 + 100 * pop))
+        surface.blit(glow, (gx + 4, gy + 3))
+        text.set_alpha(int(255 * pop))
+        surface.blit(text, (gx, gy))
+
+
+def _draw_opening_ship_break(surface, t):
+    ship_t = max(0.0, t - 4.0)
+    ship_x = -180 + (WIDTH + 360) * min(1.0, ship_t / 7.0)
+    ship_y = HEIGHT * 0.53 + math.sin(ship_t * 1.1) * 18
+    _draw_opening_ship(surface, int(ship_x), int(ship_y), scale=0.92, angle=-3 + math.sin(ship_t * 1.4) * 4, alpha=240)
+
+    # Text fragments get pushed apart as the ship crosses the center.
+    frag = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    center = WIDTH * 0.52
+    impact = max(0.0, 1.0 - min(1.0, abs(ship_x - center) / 520.0))
+    impact = impact ** 1.8
+    _draw_opening_word_stack(frag, 3.0)
+    for i in range(20):
+        px = random.randint(0, WIDTH)
+        py = random.randint(110, HEIGHT - 80)
+        dx = px - ship_x
+        dy = py - ship_y
+        dist = max(1.0, math.hypot(dx, dy))
+        push = impact * max(0.0, 1.0 - dist / 680.0)
+        if push > 0:
+            box = pygame.Surface((random.randint(24, 60), random.randint(10, 22)), pygame.SRCALPHA)
+            box.fill((80, 190, 255, int(90 * push)))
+            frag.blit(box, (px + int(dx * 0.18 * push), py + int(dy * 0.10 * push)))
+    frag.set_alpha(int(190 * min(1.0, ship_t / 3.0)))
+    surface.blit(frag, (0, 0))
+
+
+def draw_opening_cutscene(screen, t, gun_sprite=None):
+    screen.fill((0, 0, 0))
+
+    audio_end = 24.74
+    words_start = audio_end + 0.2
+    ship_start = words_start + 4.8
+    console_start = ship_start + 7.1
+    log_start = console_start + 6.8
+    final_glitch_start = log_start + 18.8
+    end_time = final_glitch_start + 4.0
+
+    glitch_strength = min(1.0, 0.03 + (t / audio_end) ** 1.6)
+    _draw_opening_glitch_storm(screen, t, intensity=min(1.0, glitch_strength))
+
+    dull = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    pulse = 0.18 + 0.12 * (math.sin(t * 1.3) + 1) * 0.5
+    dull.fill((6, 10, 22, int(120 * pulse)))
+    screen.blit(dull, (0, 0))
+
+    if t < audio_end:
+        if gun_sprite is not None and t > 0.85:
+            gun_t = t - 0.85
+            angle = -gun_t * 24.0
+            scale = 0.82 + 0.04 * math.sin(t * 2.1)
+            gun = pygame.transform.rotozoom(gun_sprite, angle, scale)
+            gun.set_alpha(int(220 + 35 * math.sin(t * 2.4)))
+            rect = gun.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            glow = pygame.Surface((rect.width + 120, rect.height + 120), pygame.SRCALPHA)
+            pygame.draw.circle(glow, (90, 170, 255, 60), (glow.get_width() // 2, glow.get_height() // 2), min(glow.get_width(), glow.get_height()) // 3)
+            pygame.draw.circle(glow, (180, 90, 255, 30), (glow.get_width() // 2, glow.get_height() // 2), min(glow.get_width(), glow.get_height()) // 2 - 10, 8)
+            screen.blit(glow, (rect.centerx - glow.get_width() // 2, rect.centery - glow.get_height() // 2))
+            screen.blit(gun, rect.topleft)
+
+    elif t < words_start:
+        # Brief beat after the audio chain ends: the weapon is gone, but the screen is still breathing.
+        pass
+
+    elif t < ship_start:
+        _draw_opening_word_stack(screen, t - words_start)
+
+    elif t < console_start:
+        _draw_opening_word_stack(screen, 3.2)
+        _draw_opening_ship_break(screen, t - ship_start + 4.0)
+        # As the ship passes, tear the words apart with extra debris and shake.
+        drift = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        for _ in range(80):
+            x = random.randint(0, WIDTH)
+            y = random.randint(120, HEIGHT - 60)
+            w = random.randint(8, 28)
+            h = random.randint(2, 6)
+            col = random.choice([(80, 200, 255, 60), (160, 90, 255, 55), (40, 120, 220, 45)])
+            pygame.draw.rect(drift, col, (x, y, w, h))
+        drift.set_alpha(160)
+        screen.blit(drift, (0, 0))
+
+    elif t < log_start:
+        zoom = 1.0 + min(1.35, (t - console_start) * 0.13)
+        _draw_opening_console(screen, t - console_start, zoom=zoom)
+
+    elif t < log_start + 4.8:
+        zoom = 2.35
+        _draw_opening_console(screen, t - console_start, zoom=zoom)
+        local = t - log_start
+        log_font = pygame.font.SysFont("courier", 28, bold=True)
+        pause_font = pygame.font.SysFont("courier", 26, bold=True)
+        if local < 4.2:
+            text = "log. 001. WAKE UP..."
+            surf = log_font.render(text, True, (220, 245, 255))
+            surf.set_alpha(int(255 * min(1.0, local / 0.5)))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - 40))
+        if local > 1.1:
+            line = "THERES SOMETHING... SOMETHING INSIDE THE CORE."
+            surf = pause_font.render(line, True, (205, 235, 255))
+            surf.set_alpha(int(255 * min(1.0, (local - 1.1) / 0.5)))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 + 8))
+        if local > 2.25:
+            line = "I think - i think its keeping the ship alive."
+            surf = pause_font.render(line, True, (180, 220, 250))
+            surf.set_alpha(int(255 * min(1.0, (local - 2.25) / 0.6)))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 + 44))
+
+    elif t < log_start + 8.6:
+        screen.fill((0, 0, 0))
+        font = pygame.font.SysFont("courier", 34, bold=True)
+        local = t - (log_start + 4.8)
+        if local < 1.0:
+            surf = font.render("FIND THE CORE", True, (215, 240, 255))
+            surf.set_alpha(int(255 * min(1.0, local / 0.35)))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
+
+    elif t < log_start + 12.2:
+        screen.fill((0, 0, 0))
+        font = pygame.font.SysFont("courier", 34, bold=True)
+        local = t - (log_start + 8.6)
+        if local < 1.0:
+            surf = font.render("FIX THE ASTRAEUS.", True, (215, 240, 255))
+            surf.set_alpha(int(255 * min(1.0, local / 0.35)))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
+
+    elif t < final_glitch_start:
+        screen.fill((0, 0, 0))
+        font = pygame.font.SysFont("courier", 30, bold=True)
+        local = t - (log_start + 12.2)
+        if local < 1.8:
+            lines = [
+                "AND STOP THE ENTITY AT THE HEART OF IT ALL.......",
+            ]
+            for idx, line in enumerate(lines):
+                surf = font.render(line, True, (220, 240, 255))
+                surf.set_alpha(int(255 * min(1.0, local / 0.45)))
+                screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2 + idx * 38))
+        _draw_opening_glitch_storm(screen, t, intensity=0.55)
+
+    elif t < end_time:
+        _draw_opening_glitch_storm(screen, t, intensity=0.95)
+        fade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        fade.fill((0, 0, 0, int(255 * min(1.0, (t - final_glitch_start) / 2.2))))
+        screen.blit(fade, (0, 0))
+
+    else:
+        screen.fill((0, 0, 0))
+
+
 def draw_corrupted_screen(surface, t, intensity=0.3):
     _scanlines(surface, intensity)
     _glitch_block(surface, intensity)
