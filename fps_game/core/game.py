@@ -50,7 +50,20 @@ from systems.ui import (
     draw_sniper_scope,
 )
 from systems.minimap import draw_minimap
-from systems.cutscene import draw_cutscene, draw_boss_kill, draw_opening_cutscene
+from systems.rewards import (
+    draw_kill_banner,
+    draw_level_reward,
+    get_continue_button_rect,
+    KILL_PHRASES,
+    REWARD_DURATION,
+)
+from systems.cutscene import (
+    draw_cutscene,
+    draw_boss_kill,
+    draw_opening_cutscene,
+    OPENING_CONSOLE_START,
+    OPENING_FIX_START,
+)
 from systems.grenades import GrenadeSystem
 from systems.temporal import (
     TimeDilation,
@@ -74,6 +87,12 @@ from core.settings import (
 )
 from systems.torch import Torch
 from systems.labyrinth import AdaptivePuzzleEngine
+from systems.events import GravityTilt, ZeroGravity
+from systems.dogfight import (
+    ConsoleDogfight,
+    draw_consoles,
+    draw_console_prompt,
+)
 
 class Game:
     def __init__(self):
@@ -100,6 +119,8 @@ class Game:
         self.base_dir = os.path.dirname(os.path.dirname(__file__))
         self.opening_audio_1 = os.path.join(self.base_dir, "assets", "sounds", "effects", "opening.mp3")
         self.opening_audio_2 = os.path.join(self.base_dir, "assets", "sounds", "effects", "second.mp3")
+        self.opening_audio_last = os.path.join(self.base_dir, "assets", "sounds", "effects", "last.mp3")
+        self.death_audio_path = os.path.join(self.base_dir, "assets", "sounds", "effects", "death.mp3")
         self.opening_weapon_path = os.path.join(self.base_dir, "assets", "images", "openingweapon.png")
 
         self.current_music_level = -1
@@ -134,6 +155,11 @@ class Game:
         self.fracture_zones = FractureZones()
         self.temporal_visuals = TemporalVisuals()
 
+        self.gravity_tilt = GravityTilt()
+        self.zero_g = ZeroGravity()
+        self.dogfight = ConsoleDogfight()
+        self.consoles = []
+
         self.level_paths = sorted(
             glob.glob(f"{LEVELS_DIR}/level*.txt"),
             key=lambda path: int(
@@ -161,6 +187,18 @@ class Game:
         self.kills           = 0
         self.points          = 0
         self.shake           = 0
+        self.kill_banner     = {"text": "", "timer": 0}
+        self._prev_alive_count = -1
+        self.reward          = {
+            "timer": 0.0,
+            "duration": 2.8,
+            "gained": 0,
+            "total": 0,
+            "sector": 1,
+            "particles": [],
+            "sparks": [],
+            "done": False,
+        }
         self.hit_flash       = 0
         self.hit_marker      = 0
         self.score_pulse     = 0
@@ -191,9 +229,14 @@ class Game:
         self.opening_cutscene_duration = 72.0
         self._opening_audio_manual = False
         self._opening_audio_started_at = 0.0
-        self._opening_audio_second_started = False
+        self._opening_audio_stage = "idle"
+        self._opening_audio_stage_started_at = 0.0
+        self._opening_audio_stop_buffer = 0.18
         self.opening_audio_1_len = 3.317531
         self.opening_audio_2_len = 21.420406
+        self.opening_audio_last_len = 13.128
+        self.opening_audio_stop_time = OPENING_FIX_START - self._opening_audio_stop_buffer
+        self._death_audio_playing = False
         self.ending_choice   = ""
         self.cinematic_time   = 0.0
         self.cinematic_duration = 7.5
@@ -606,10 +649,12 @@ class Game:
         return floor, grade, vignette
 
     def load_current_level(self, play_music=True):
-        self.world, self.enemies, self.health_packs, self.weapon_pickups, spawn, self.rooms, self.doors = load_level(
+        (self.world, self.enemies, self.health_packs, self.weapon_pickups, spawn,
+         self.rooms, self.doors, self.consoles) = load_level(
             self.level_paths[self.current_level_index]
         )
         self.enemy_bullets = []
+        self._prev_alive_count = -1
         self.player.x, self.player.y = spawn
         self.player.clear_temp_weapons()
         self.player.refresh_owned_ammo()
@@ -627,6 +672,10 @@ class Game:
         self.time_rewind._history.clear()
         self.temporal_echo._recording.clear()
         self.fracture_zones.leave_room()
+        self.gravity_tilt.enter_level(self.current_level_index)
+        self.zero_g.enter_level(self.current_level_index)
+        self.dogfight.reset_for_level()
+        self._console_hint_timer = 0
         if play_music:
             self.play_music_for_level(self.current_level_index)
 
@@ -720,6 +769,19 @@ class Game:
             else:
                 self._start_labyrinth_for_door(closest)
 
+    def _console_required(self):
+        return self.current_level_index in ConsoleDogfight.SCHEDULED_LEVELS
+
+    def _try_access_console(self):
+        if not self.consoles:
+            return False
+        pos = self.dogfight.find_near_console(self.consoles, self.player)
+        if pos is None:
+            return False
+        self.dogfight.start(self.player)
+        self.state = "dogfight"
+        return True
+
     def _try_pickup_weapon(self):
         closest      = None
         closest_dist = WEAPON_PICKUP_RANGE + 1
@@ -801,19 +863,100 @@ class Game:
         else:
             self.labyrinth_input = ""
 
+    def _begin_level_reward(self):
+        self.points += LEVEL_POINTS
+        self.glitch_messages.append(
+            {"text": f"SECTOR CLEARED // +{LEVEL_POINTS} POINTS", "timer": 50}
+        )
+        self.reward = {
+            "timer": 0.0,
+            "duration": REWARD_DURATION,
+            "gained": LEVEL_POINTS,
+            "total": self.points,
+            "sector": self.current_level_index + 1,
+            "particles": [],
+            "sparks": [],
+            "done": False,
+        }
+        self._prev_alive_count = -1
+        self.level_complete_time = None
+        self.state = "level_reward"
+        try:
+            if os.path.exists(EFFECT_FILES["level_up"]):
+                pygame.mixer.Sound(EFFECT_FILES["level_up"]).play()
+        except (KeyError, pygame.error):
+            pass
+        pygame.event.set_grab(False)
+        pygame.mouse.set_visible(True)
+        self.save_game()
+
+    def _continue_from_reward(self):
+        pygame.event.set_grab(True)
+        pygame.mouse.set_visible(False)
+        self.state = "playing"
+        self.advance_level()
+
+    def _update_level_reward(self):
+        reward = self.reward
+        reward["timer"] += 1.0 / FPS
+        if reward["timer"] >= reward["duration"]:
+            reward["done"] = True
+
+        if reward["timer"] < reward["duration"]:
+            for _ in range(3):
+                reward["particles"].append({
+                    "x": random.uniform(WIDTH * 0.18, WIDTH * 0.82),
+                    "y": random.uniform(-40, 0),
+                    "vx": random.uniform(-0.6, 0.6),
+                    "vy": random.uniform(1.4, 2.8),
+                    "size": random.randint(4, 8),
+                    "color": random.choice([
+                        (255, 215, 90), (255, 230, 140),
+                        (120, 210, 255), (180, 235, 255),
+                    ]),
+                    "spin": random.uniform(0, math.pi * 2),
+                })
+
+        bar_bottom = 96 + 30
+        for p in reward["particles"][:]:
+            p["vy"] += 0.18
+            p["x"] += p["vx"]
+            p["y"] += p["vy"]
+            p["spin"] += 0.2
+            if p["y"] >= bar_bottom:
+                reward["particles"].remove(p)
+                reward["sparks"].append({"x": p["x"], "y": bar_bottom, "t": 0})
+
+        for s in reward["sparks"][:]:
+            s["t"] += 1
+            if s["t"] > 14:
+                reward["sparks"].remove(s)
+
+        if len(reward["particles"]) > 220:
+            del reward["particles"][:len(reward["particles"]) - 220]
+
+    def _detect_kills(self):
+        alive_now = sum(1 for e in self.enemies if e["alive"])
+        if self._prev_alive_count >= 0 and alive_now < self._prev_alive_count:
+            self._trigger_kill_reward(self._prev_alive_count - alive_now)
+        self._prev_alive_count = alive_now
+
+    def _trigger_kill_reward(self, count):
+        self.shake = max(self.shake, 6)
+        if count >= 5:
+            text = "MASSACRE!"
+        elif count >= 3:
+            text = "RAMPAGE!"
+        elif count == 2:
+            text = "DOUBLE TAKEDOWN!"
+        else:
+            text = random.choice(KILL_PHRASES)
+        self.kill_banner = {"text": text, "timer": 9}
+
     def advance_level(self):
         if self.current_level_index + 1 < len(self.level_paths):
-            self.points += LEVEL_POINTS
-            self.glitch_messages.append(
-                {"text": f"SECTOR CLEARED // +{LEVEL_POINTS} POINTS", "timer": 50}
-            )
             self.current_level_index += 1
             self.load_current_level()
-            try:
-                if os.path.exists(EFFECT_FILES["level_up"]):
-                    pygame.mixer.Sound(EFFECT_FILES["level_up"]).play()
-            except (KeyError, pygame.error):
-                pass
             self.level_complete_time = None
             self.save_game()
             if self.current_level_index in self.log_beats:
@@ -829,6 +972,7 @@ class Game:
             self.state = "ending_choice"
 
     def reset_game(self):
+        self._stop_death_audio()
         self.current_level_index = 0
         self.load_current_level()
         self.enemy_bullets = []
@@ -839,6 +983,7 @@ class Game:
         self.game_over            = False
         self.restart_cooldown     = 15
         self.shake                = 0
+        self.kill_banner          = {"text": "", "timer": 0}
         self.score                = 0
         self.kills                = 0
         self.ending_choice        = ""
@@ -871,6 +1016,7 @@ class Game:
             enemy["attack_frame"] = 5
             if self.player.health <= 0:
                 self.game_over = True
+                self._start_death_audio()
                 self.save_game()
 
     def toggle_fullscreen(self):
@@ -896,13 +1042,38 @@ class Game:
             except pygame.error as e:
                 print(f"Failed to load music {music_path}: {e}")
 
+    def _start_death_audio(self):
+        if self._death_audio_playing:
+            return
+        if not pygame.mixer.get_init():
+            return
+        if not os.path.exists(self.death_audio_path):
+            return
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(self.death_audio_path)
+            pygame.mixer.music.set_volume(0.72)
+            pygame.mixer.music.play(-1)
+            self._death_audio_playing = True
+        except pygame.error:
+            self._death_audio_playing = False
+
+    def _stop_death_audio(self):
+        try:
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+        except pygame.error:
+            pass
+        self._death_audio_playing = False
+
     def _start_opening_cutscene_audio(self):
         if self.opening_cutscene_started:
             return
         self.opening_cutscene_started = True
         self._opening_audio_manual = False
-        self._opening_audio_second_started = False
         self._opening_audio_started_at = time.time()
+        self._opening_audio_stage_started_at = self._opening_audio_started_at
+        self._opening_audio_stage = "opening_chain"
 
         if not pygame.mixer.get_init():
             return
@@ -918,24 +1089,95 @@ class Game:
                 self._opening_audio_manual = True
                 self._opening_audio_sound_1 = pygame.mixer.Sound(self.opening_audio_1)
                 self._opening_audio_sound_2 = pygame.mixer.Sound(self.opening_audio_2)
-                self._opening_audio_channel_1 = self._opening_audio_sound_1.play()
-                if self._opening_audio_channel_1 is not None:
-                    self._opening_audio_channel_1.set_volume(0.72)
+                self._opening_audio_sound_last = pygame.mixer.Sound(self.opening_audio_last)
+                self._opening_audio_channel = self._opening_audio_sound_1.play()
+                if self._opening_audio_channel is not None:
+                    self._opening_audio_channel.set_volume(0.72)
             except pygame.error:
                 self._opening_audio_manual = False
 
     def _update_opening_cutscene_audio(self):
-        if not self._opening_audio_manual:
+        if not self.opening_cutscene_started:
             return
-        elapsed = time.time() - self._opening_audio_started_at
-        if not self._opening_audio_second_started and elapsed >= self.opening_audio_1_len - 0.03:
+        t = self.opening_cutscene_time
+
+        if self._opening_audio_stage == "opening_chain" and t >= OPENING_CONSOLE_START:
+            self._switch_opening_audio_stage("last_once")
+        elif self._opening_audio_stage == "last_once":
+            if pygame.mixer.get_init():
+                busy = pygame.mixer.music.get_busy()
+            else:
+                busy = False
+
+            if self._opening_audio_manual:
+                channel = getattr(self, "_opening_audio_channel_last", None)
+                if channel is not None:
+                    busy = channel.get_busy()
+
+            if not busy:
+                self._switch_opening_audio_stage("second_loop")
+        elif self._opening_audio_stage == "second_loop" and t >= self.opening_audio_stop_time:
+            self._switch_opening_audio_stage("silent")
+
+    def _stop_opening_audio_channels(self):
+        try:
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+        except pygame.error:
+            pass
+
+        for attr in (
+            "_opening_audio_channel",
+            "_opening_audio_channel_1",
+            "_opening_audio_channel_2",
+            "_opening_audio_channel_last",
+        ):
+            channel = getattr(self, attr, None)
+            if channel is not None:
+                try:
+                    channel.stop()
+                except pygame.error:
+                    pass
+                setattr(self, attr, None)
+
+    def _switch_opening_audio_stage(self, stage):
+        if stage == self._opening_audio_stage:
+            return
+
+        self._stop_opening_audio_channels()
+        self._opening_audio_stage = stage
+        self._opening_audio_stage_started_at = time.time()
+
+        if not pygame.mixer.get_init():
+            return
+
+        try:
+            if stage == "last_once":
+                pygame.mixer.music.load(self.opening_audio_last)
+                pygame.mixer.music.set_volume(0.72)
+                pygame.mixer.music.play()
+            elif stage == "second_loop":
+                pygame.mixer.music.load(self.opening_audio_2)
+                pygame.mixer.music.set_volume(0.72)
+                pygame.mixer.music.play(-1)
+            elif stage == "silent":
+                pygame.mixer.music.stop()
+        except pygame.error:
+            if not self._opening_audio_manual:
+                return
             try:
-                self._opening_audio_channel_2 = self._opening_audio_sound_2.play()
-                if self._opening_audio_channel_2 is not None:
-                    self._opening_audio_channel_2.set_volume(0.72)
-                self._opening_audio_second_started = True
+                if stage == "last_once":
+                    self._opening_audio_channel_last = self._opening_audio_sound_last.play()
+                    if self._opening_audio_channel_last is not None:
+                        self._opening_audio_channel_last.set_volume(0.72)
+                elif stage == "second_loop":
+                    self._opening_audio_channel_2 = self._opening_audio_sound_2.play(loops=-1)
+                    if self._opening_audio_channel_2 is not None:
+                        self._opening_audio_channel_2.set_volume(0.72)
+                elif stage == "silent":
+                    pass
             except pygame.error:
-                self._opening_audio_second_started = True
+                pass
 
     def _finish_opening_cutscene(self):
         try:
@@ -945,6 +1187,12 @@ class Game:
             pass
         self.play_music_for_level(self.current_level_index)
         self.state = "playing"
+
+    def _skip_opening_cutscene(self):
+        self._stop_opening_audio_channels()
+        self.play_music_for_level(self.current_level_index)
+        self.state = "playing"
+        self.opening_cutscene_time = self.opening_cutscene_duration
 
     def _process_player_shot(self):
         score_delta, kills_delta, hit_any, fired = self.weapon_system.try_shoot(
@@ -1017,7 +1265,12 @@ class Game:
                         self.state = "menu"
 
                 elif self.state == "opening_cutscene":
-                    pass
+                    if event.key == pygame.K_RETURN:
+                        self._skip_opening_cutscene()
+
+                elif self.state == "level_reward":
+                    if event.key == pygame.K_RETURN:
+                        self._continue_from_reward()
 
                 elif self.state == "playing":
                     if event.key == pygame.K_1:
@@ -1048,8 +1301,9 @@ class Game:
                     if event.key == pygame.K_F11:
                         self.toggle_fullscreen()
                     if event.key == pygame.K_e:
-                        self._toggle_nearby_door()
-                        self._try_pickup_weapon()
+                        if not self._try_access_console():
+                            self._toggle_nearby_door()
+                            self._try_pickup_weapon()
                     if event.key == pygame.K_z:
                         self.grenade_system.try_throw("space",   self.player)
                     if event.key == pygame.K_x:
@@ -1134,23 +1388,26 @@ class Game:
                     self._exit_boss_cinematic()
                 elif self.state == "cutscene":
                     self.state = self.cutscene_return_state
+                elif self.state == "level_reward":
+                    if get_continue_button_rect().collidepoint(event.pos):
+                        self._continue_from_reward()
 
             if event.type == pygame.MOUSEMOTION:
                 if self.state == "playing" and not self.game_over:
                     self.mouse_dx += event.rel[0]
 
-                mouse_x, mouse_y = pygame.mouse.get_pos()
-                wrapped_x, wrapped_y = mouse_x, mouse_y
-                if mouse_x <= 0:
-                    wrapped_x = WIDTH - 2
-                elif mouse_x >= WIDTH - 1:
-                    wrapped_x = 1
-                if mouse_y <= 0:
-                    wrapped_y = HEIGHT - 2
-                elif mouse_y >= HEIGHT - 1:
-                    wrapped_y = 1
-                if wrapped_x != mouse_x or wrapped_y != mouse_y:
-                    pygame.mouse.set_pos(wrapped_x, wrapped_y)
+                    mouse_x, mouse_y = pygame.mouse.get_pos()
+                    wrapped_x, wrapped_y = mouse_x, mouse_y
+                    if mouse_x <= 0:
+                        wrapped_x = WIDTH - 2
+                    elif mouse_x >= WIDTH - 1:
+                        wrapped_x = 1
+                    if mouse_y <= 0:
+                        wrapped_y = HEIGHT - 2
+                    elif mouse_y >= HEIGHT - 1:
+                        wrapped_y = 1
+                    if wrapped_x != mouse_x or wrapped_y != mouse_y:
+                        pygame.mouse.set_pos(wrapped_x, wrapped_y)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self.state == "playing" and not self.game_over:
@@ -1195,6 +1452,11 @@ class Game:
                 self._finish_opening_cutscene()
             return
 
+        if self.game_over:
+            self._start_death_audio()
+        elif self._death_audio_playing:
+            self._stop_death_audio()
+
         if self.state == "labyrinth":
             if self.labyrinth_feedback_timer > 0:
                 self.labyrinth_feedback_timer -= 1
@@ -1203,6 +1465,31 @@ class Game:
                 self.labyrinth_feedback_timer = 80
                 self.labyrinth_puzzle = self.labyrinth_engine.generate_puzzle()
                 self.labyrinth_input = ""
+            return
+
+        if self.state == "dogfight":
+            self.dogfight.update()
+            if not self.dogfight.active and self.dogfight.end_state:
+                if self.dogfight.end_state == "victory":
+                    if not self.dogfight.points_awarded:
+                        self.dogfight.points_awarded = True
+                        self.points += 300
+                        self.glitch_messages.append(
+                            {"text": "TEMPORAL FRACTURE DESTROYED // +300 POINTS", "timer": 60}
+                        )
+                        self.glitch_messages.append(
+                            {"text": "THE ASTRAEUS WAS ATTACKED BY ITSELF — A TEMPORAL FRACTURE", "timer": 90}
+                        )
+                        self.save_game()
+                else:
+                    self.glitch_messages.append(
+                        {"text": "CONNECTION LOST // REACCESS THE CONSOLE", "timer": 50}
+                    )
+                self.state = "playing"
+            return
+
+        if self.state == "level_reward":
+            self._update_level_reward()
             return
 
         if self.state not in {"playing", "loop"}:
@@ -1262,7 +1549,14 @@ class Game:
                 self.player.mouse_sensitivity *= 0.45
 
             effective_mx = -mx if reverse_controls else mx
-            self.player.move(self.world, effective_mx, self.doors, speed_scale=effective_player)
+            if self.zero_g.is_zero_g and not self.zero_g.is_falling:
+                self.player.angle += effective_mx * self.player.mouse_sensitivity
+                self.zero_g.move_player(
+                    self.player, self.world, self.doors,
+                    speed_scale=effective_player,
+                )
+            else:
+                self.player.move(self.world, effective_mx, self.doors, speed_scale=effective_player)
 
             room_key = self.rooms.get(
                 (int(self.player.x // TILE) * TILE, int(self.player.y // TILE) * TILE)
@@ -1329,9 +1623,30 @@ class Game:
 
             self.weapon_system.update_reload(self.player)
 
+            self.gravity_tilt.update()
+            self.zero_g.update(
+                self.player, self.enemies, self.world, self.doors,
+                self.health_packs, self.weapon_pickups,
+                speed_scale=effective_world,
+            )
+
+            if self.gravity_tilt.is_active():
+                self.gravity_tilt.apply_to_player(
+                    self.player, self.world, self.doors, scale=effective_world)
+                for enemy in self.enemies:
+                    if enemy["alive"]:
+                        self.gravity_tilt.apply_to_entity(
+                            enemy, self.world, self.doors, scale=effective_world)
+                for pack in self.health_packs:
+                    self.gravity_tilt.apply_to_entity(
+                        pack, self.world, self.doors, scale=effective_world)
+                for pickup in self.weapon_pickups:
+                    self.gravity_tilt.apply_to_entity(
+                        pickup, self.world, self.doors, scale=effective_world)
+
             new_bullets = update_enemies(
                 self.enemies, self.player, self.world, self.doors,
-                self.on_player_hit, effective_time,
+                self.on_player_hit, effective_time * self.zero_g.speed_scale(),
             )
             self.enemy_bullets.extend(new_bullets)
             self._update_enemy_bullets(effective_time)
@@ -1347,12 +1662,22 @@ class Game:
             if events["zoom"] > 0:
                 self.screen_zoom     = max(self.screen_zoom, events["zoom"])
 
-            level_cleared = (not self.enemies) or all(not e["alive"] for e in self.enemies)
+            enemies_dead = (not self.enemies) or all(not e["alive"] for e in self.enemies)
+            if self._console_required() and not self.dogfight.victory:
+                level_cleared = False
+                if enemies_dead and self._console_hint_timer <= 0:
+                    self.glitch_messages.append(
+                        {"text": "TEMPORAL FRACTURE ACTIVE — FIND THE ASTRAEUS CONSOLE", "timer": 60}
+                    )
+                    self._console_hint_timer = 300
+            else:
+                level_cleared = enemies_dead
+
             if level_cleared and self.state == "playing":
                 if self.level_complete_time is None:
                     self.level_complete_time = time.time()
                 elif time.time() - self.level_complete_time >= self.level_advance_delay:
-                    self.advance_level()
+                    self._begin_level_reward()
             else:
                 self.level_complete_time = None
 
@@ -1373,6 +1698,7 @@ class Game:
                 if self.player.health <= 0:
                     self.player.health = self.player.max_health
                     self.game_over     = False
+                    self._stop_death_audio()
 
         self._finish_frame_counters()
 
@@ -1382,6 +1708,7 @@ class Game:
         self.player.update_invincibility()
         effective_time = self.time_scale * self.time_dilation.world_scale
         self.weapon_system.update_bullets(self.world, self.enemies, effective_time)
+        self._detect_kills()
         self._check_boss_kill_cinematic()
 
         self.anim_time  += 0.12 * self.time_scale
@@ -1399,6 +1726,10 @@ class Game:
         if self.room_timer > 0:       self.room_timer         -= 1
         if self.restart_cooldown > 0: self.restart_cooldown  -= 1
         if self.shake > 0:            self.shake              -= 1
+        if self.kill_banner["timer"] > 0:
+            self.kill_banner["timer"] -= 1
+        if self._console_hint_timer > 0:
+            self._console_hint_timer -= 1
 
         self.screen_zoom     *= 0.85
         if abs(self.screen_zoom) < 0.002:
@@ -1447,7 +1778,7 @@ class Game:
                             sprite_size = max(1, int(size * scale))
                             if enemy.get("boss", False):
                                 # Intentionally massive boss presentation (10-20x).
-                                boss_scale = 100.0
+                                boss_scale = 20.0
                                 sprite_size = max(1, int(sprite_size * boss_scale))
                             sprite = self.enemy_sprites.get(
                                 enemy.get("boss_kind") or enemy.get("type"), None
@@ -1526,6 +1857,7 @@ class Game:
                     self.cinematic_pulse = 0.9
                     if player.health <= 0:
                         self.game_over = True
+                        self._start_death_audio()
                         self.save_game()
                 self.enemy_bullets.remove(bullet)
                 continue
@@ -1707,6 +2039,12 @@ class Game:
                 duration=self.cinematic_duration,
             )
 
+        elif self.state == "dogfight":
+            self.dogfight.draw(self.screen)
+
+        elif self.state == "level_reward":
+            draw_level_reward(self.screen, self.reward, self.score, self.kills)
+
         else:
             scene = pygame.Surface((WIDTH, HEIGHT))
             scene.fill((6, 8, 14))
@@ -1733,6 +2071,7 @@ class Game:
             )
             self.grenade_system.draw_grenades(scene, self.player, self.depth_buffer, self.anim_time)
             self.temporal_echo.draw(scene, self.player, self.depth_buffer)
+            draw_consoles(scene, self.consoles, self.player, self.depth_buffer, self.anim_time)
             self.weapon_system.draw_bullets(scene)
             scope_active = self._sniper_scope_active()
             if self.torch_enabled and not scope_active:
@@ -1759,7 +2098,7 @@ class Game:
             target_w    = max(1, int(WIDTH  * zoom * zoom_pulse))
             target_h    = max(1, int(HEIGHT * zoom * zoom_pulse))
             scaled      = pygame.transform.smoothscale(scene, (target_w, target_h))
-            angle       = max(-5.0, min(5.0, self.roll_angle))
+            angle       = max(-12.0, min(12.0, self.roll_angle + self.gravity_tilt.angle))
             if abs(angle) > 0.02:
                 scaled = pygame.transform.rotozoom(scaled, angle, 1.0)
 
@@ -1861,11 +2200,17 @@ class Game:
                 draw_overlay_messages(
                     self.screen, self.glitch_messages, flicker=abs(math.sin(self.ui_phase))
                 )
+                near_console = self.dogfight.find_near_console(self.consoles, self.player)
+                if near_console:
+                    draw_console_prompt(self.screen, self.hud_font, near_console)
                 if self.room_timer > 0 and self.current_room:
                     draw_room_label(
                         self.screen, self.current_room,
                         self.room_timer / 90, abs(math.sin(self.ui_phase)),
                     )
+
+                self.zero_g.draw_hud(self.screen, self.ui_phase)
+                self.gravity_tilt.draw_overlay(self.screen, self.ui_phase)
 
                 draw_temporal_hud(
                     self.screen,
@@ -1875,6 +2220,9 @@ class Game:
                     self.fracture_zones,
                     self.ui_phase,
                 )
+
+                if self.kill_banner["timer"] > 0:
+                    draw_kill_banner(self.screen, self.kill_banner)
 
                 if self.hit_flash > 0:
                     draw_hit_flash(self.screen)

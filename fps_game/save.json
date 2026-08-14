@@ -1,19 +1,22 @@
 {
-  "level": 2,
-  "score": 110,
-  "kills": 3,
-  "points": 2000,
+  "level": 9,
+  "score": 1000,
+  "kills": 25,
+  "points": 3400,
   "owned_weapons": [
-    "Pistol"
+    "Machine Gun",
+    "Pistol",
+    "Shotgun",
+    "Sniper"
   ],
   "health": 100,
   "sensitivity": 0.001,
   "fullscreen": true,
   "ammo": [
     10,
+    5,
     0,
-    0,
-    0
+    37
   ],
   "labyrinth": {
     "run_id": "run-1782383339-5464",

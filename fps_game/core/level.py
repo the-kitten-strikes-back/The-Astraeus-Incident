@@ -11,6 +11,7 @@ def load_level(path):
     weapon_pickups = []
     rooms = {}
     doors = {}
+    consoles = []
     player_spawn = (150, 150)
 
     with open(path) as f:
@@ -48,5 +49,7 @@ def load_level(path):
                 rooms[(x, y)] = char
             elif char == "X":
                 doors[(x, y)] = {"open": False}
+            elif char == "J":
+                consoles.append((x + TILE // 2, y + TILE // 2))
 
-    return world, enemies, health_packs, weapon_pickups, player_spawn, rooms, doors
+    return world, enemies, health_packs, weapon_pickups, player_spawn, rooms, doors, consoles

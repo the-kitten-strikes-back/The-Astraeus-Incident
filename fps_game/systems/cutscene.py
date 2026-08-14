@@ -3,6 +3,15 @@ import pygame
 import random
 
 from core.settings import WIDTH, HEIGHT
+
+OPENING_AUDIO_END = 24.74
+OPENING_WORDS_START = OPENING_AUDIO_END + 0.35
+OPENING_SHIP_START = OPENING_WORDS_START + 7.2
+OPENING_CONSOLE_START = OPENING_SHIP_START + 7.6
+OPENING_LOG_START = OPENING_CONSOLE_START + 6.8
+OPENING_FIX_START = OPENING_LOG_START + 8.6
+OPENING_FINAL_GLITCH_START = OPENING_LOG_START + 18.8
+OPENING_END_TIME = OPENING_FINAL_GLITCH_START + 6.2
 def clamp(val, low=0, high=255):
     return max(low, min(high, val))
 
@@ -267,15 +276,7 @@ def _draw_opening_ship_break(surface, t):
 def draw_opening_cutscene(screen, t, gun_sprite=None):
     screen.fill((0, 0, 0))
 
-    audio_end = 24.74
-    words_start = audio_end + 0.35
-    ship_start = words_start + 7.2
-    console_start = ship_start + 7.6
-    log_start = console_start + 6.8
-    final_glitch_start = log_start + 18.8
-    end_time = final_glitch_start + 6.2
-
-    glitch_strength = min(1.0, 0.05 + (t / audio_end) ** 1.75)
+    glitch_strength = min(1.0, 0.05 + (t / OPENING_AUDIO_END) ** 1.75)
     _draw_opening_glitch_storm(screen, t, intensity=min(1.0, glitch_strength))
 
     dull = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -283,7 +284,7 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
     dull.fill((6, 10, 22, int(120 * pulse)))
     screen.blit(dull, (0, 0))
 
-    if t < audio_end:
+    if t < OPENING_AUDIO_END:
         if gun_sprite is not None and t > 1.35:
             gun_t = t - 1.35
             angle = -gun_t * 24.0
@@ -297,11 +298,11 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
             screen.blit(glow, (rect.centerx - glow.get_width() // 2, rect.centery - glow.get_height() // 2))
             screen.blit(gun, rect.topleft)
 
-    elif t < words_start:
+    elif t < OPENING_WORDS_START:
         # Brief beat after the audio chain ends: the weapon is gone, but the screen is still breathing.
         pass
 
-    elif t < ship_start:
+    elif t < OPENING_SHIP_START:
         word_times = [
             ("TIME", 0.0, 1.15),
             ("IS", 1.55, 1.00),
@@ -309,7 +310,7 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
             ("YOUR", 4.25, 1.05),
             ("SIDE.", 5.65, 1.15),
         ]
-        local = t - words_start
+        local = t - OPENING_WORDS_START
         shown = False
         for word, start, duration in word_times:
             if start <= local < start + duration:
@@ -319,9 +320,9 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
         if not shown:
             screen.fill((0, 0, 0))
 
-    elif t < console_start:
+    elif t < OPENING_CONSOLE_START:
         _draw_opening_word_burst(screen, "SIDE.", 0.82, duration=1.15)
-        _draw_opening_ship_break(screen, t - ship_start + 4.0)
+        _draw_opening_ship_break(screen, t - OPENING_SHIP_START + 4.0)
         # As the ship passes, tear the words apart with extra debris and shake.
         drift = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         for _ in range(80):
@@ -334,14 +335,14 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
         drift.set_alpha(160)
         screen.blit(drift, (0, 0))
 
-    elif t < log_start:
-        zoom = 1.0 + min(1.35, (t - console_start) * 0.13)
-        _draw_opening_console(screen, t - console_start, zoom=zoom)
+    elif t < OPENING_LOG_START:
+        zoom = 1.0 + min(1.35, (t - OPENING_CONSOLE_START) * 0.13)
+        _draw_opening_console(screen, t - OPENING_CONSOLE_START, zoom=zoom)
 
-    elif t < log_start + 4.8:
+    elif t < OPENING_LOG_START + 4.8:
         zoom = 2.35
-        _draw_opening_console(screen, t - console_start, zoom=zoom)
-        local = t - log_start
+        _draw_opening_console(screen, t - OPENING_CONSOLE_START, zoom=zoom)
+        local = t - OPENING_LOG_START
         log_font = pygame.font.SysFont("courier", 28, bold=True)
         pause_font = pygame.font.SysFont("courier", 26, bold=True)
         if local < 4.2:
@@ -360,31 +361,31 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
             surf.set_alpha(int(255 * min(1.0, (local - 2.25) / 0.6)))
             screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 + 44))
 
-    elif t < log_start + 8.6:
+    elif t < OPENING_FIX_START:
         screen.fill((0, 0, 0))
         font = pygame.font.SysFont("courier", 34, bold=True)
-        local = t - (log_start + 4.8)
+        local = t - (OPENING_LOG_START + 4.8)
         if local < 1.0:
-            surf = font.render("FIND THE CORE", True, (215, 240, 255))
+            surf = font.render("FIND THE CORE.", True, (215, 240, 255))
             surf.set_alpha(int(255 * min(1.0, local / 0.35)))
             screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
 
-    elif t < log_start + 12.2:
+    elif t < OPENING_LOG_START + 12.2:
         screen.fill((0, 0, 0))
         font = pygame.font.SysFont("courier", 34, bold=True)
-        local = t - (log_start + 8.6)
+        local = t - OPENING_FIX_START
         if local < 1.0:
             surf = font.render("FIX THE ASTRAEUS.", True, (215, 240, 255))
             surf.set_alpha(int(255 * min(1.0, local / 0.35)))
             screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
 
-    elif t < final_glitch_start:
+    elif t < OPENING_FINAL_GLITCH_START:
         screen.fill((0, 0, 0))
         font = pygame.font.SysFont("courier", 30, bold=True)
-        local = t - (log_start + 12.2)
+        local = t - (OPENING_LOG_START + 12.2)
         if local < 1.8:
             lines = [
-                "AND STOP THE ENTITY AT THE HEART OF IT ALL.......",
+                "AND STOP THE ENTITY AT THE HEART OF IT ALL...",
             ]
             for idx, line in enumerate(lines):
                 surf = font.render(line, True, (220, 240, 255))
@@ -392,10 +393,10 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
                 screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2 + idx * 38))
         _draw_opening_glitch_storm(screen, t, intensity=0.8)
 
-    elif t < end_time:
+    elif t < OPENING_END_TIME:
         _draw_opening_glitch_storm(screen, t, intensity=1.0)
         fade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        fade.fill((0, 0, 0, int(255 * min(1.0, (t - final_glitch_start) / 3.0))))
+        fade.fill((0, 0, 0, int(255 * min(1.0, (t - OPENING_FINAL_GLITCH_START) / 3.0))))
         screen.blit(fade, (0, 0))
 
     else:
@@ -750,7 +751,7 @@ def draw_compound_map(screen, map_data):
 
 def _draw_point_text(screen, t, weak=False):
     font = pygame.font.SysFont("courier", 150, bold=True)
-    text = random.choice(["ENEMY TERMINATED", "TARGET ELIMINATED", "BOSS DESTROYED", "POINT", "CRITICAL HIT"])
+    text = random.choice(["BOSS DESTROYED!"])
     base = font.render(text, True, (245, 245, 250))
 
     if weak:
