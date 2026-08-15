@@ -1,0 +1,34 @@
+{
+  "level": 4,
+  "score": 0,
+  "kills": 0,
+  "points": 1400,
+  "owned_weapons": [
+    "Pistol"
+  ],
+  "health": 80,
+  "sensitivity": 0.001,
+  "fullscreen": true,
+  "volume": 1.0,
+  "muted": false,
+  "ammo": [
+    10,
+    0,
+    0,
+    0
+  ],
+  "labyrinth": {
+    "run_id": "run-1786794761-4014",
+    "skill_rating": 0.5,
+    "total_puzzles": 0,
+    "total_solved": 0,
+    "total_failed": 0,
+    "total_attempts": 0,
+    "streak": 0,
+    "mistake_profile": {
+      "arithmetic": 0,
+      "pattern": 0,
+      "logic": 0
+    }
+  }
+}
