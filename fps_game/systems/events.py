@@ -7,13 +7,7 @@ from core.settings import WIDTH, HEIGHT, TILE
 from utils.math_utils import is_wall
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# GRAVITY TILT EVENT
-#
-# At roughly every second level the entire ship heels over: red alerts flare
-# everywhere and "gravity" shifts toward the tilted wall, dragging the player,
-# enemies and loose sprites across the deck until they pile against it.
-# ──────────────────────────────────────────────────────────────────────────
+
 class GravityTilt:
     IDLE = "idle"
     WARNING = "warning"
@@ -48,9 +42,8 @@ class GravityTilt:
         self._armed_level = level_index in self.SCHEDULED_LEVELS
         if self._armed_level:
             self._delay = random.randint(480, 1500)   # 8-25s in
-            self.target_angle = random.choice([-1, 1]) * random.uniform(9.0, 13.0)
+            self.target_angle = random.choice([-1, 1]) * random.uniform(30.0, 50.0)
 
-    # ── behaviour ─────────────────────────────────────────────────────────
     @property
     def gravity_dir(self):
         """Unit vector sprites are dragged toward (rotated with the tilt)."""
@@ -103,8 +96,6 @@ class GravityTilt:
 
     def _smoothstep(self, t):
         return t * t * (3 - 2 * t)
-
-    # ── physics push (called by game.py) ──────────────────────────────────
     def pull_magnitude(self):
         if self.phase != self.ACTIVE:
             return 0.0

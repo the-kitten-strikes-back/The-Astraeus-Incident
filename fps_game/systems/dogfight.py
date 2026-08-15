@@ -4,6 +4,7 @@ import random
 import pygame
 
 from core.settings import WIDTH, HEIGHT, HALF_FOV, FOV, NUM_RAYS, HALF_HEIGHT
+from systems import audio
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -151,7 +152,7 @@ class ConsoleDogfight:
                 from core.settings import EFFECT_FILES
                 path = EFFECT_FILES.get("laser")
                 if path and os.path.exists(path):
-                    pygame.mixer.Sound(path).play()
+                    audio.play_sound(path)
             except Exception:
                 pass
 

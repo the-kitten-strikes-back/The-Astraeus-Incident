@@ -58,6 +58,22 @@ def draw_points(screen, font, points):
     screen.blit(font.render(f"POINTS  {points}", True, (255, 220, 120)), (WIDTH - 200, 60))
 
 
+def draw_audio_status(screen, font, muted=False, volume=1.0):
+    x, y = 12, 64
+    if muted:
+        surf = font.render("[ M ]  AUDIO MUTED", True, (230, 80, 80))
+        screen.blit(surf, (x, y))
+        return
+    pct = int(max(0.0, min(1.0, volume)) * 10)
+    bar_w = 66
+    bar_h = 8
+    fill = max(1, int(bar_w * pct / 10))
+    pygame.draw.rect(screen, (40, 40, 40), (x, y + 8, bar_w, bar_h))
+    pygame.draw.rect(screen, (90, 200, 170), (x, y + 8, fill, bar_h))
+    label = font.render(f"VOL {pct * 10}%", True, (170, 210, 240))
+    screen.blit(label, (x + bar_w + 8, y - 2))
+
+
 def draw_overlay_messages(screen, messages, flicker=0.0):
     if not messages:
         return
@@ -136,7 +152,7 @@ def draw_game_over(screen, font):
     screen.blit(note, (WIDTH // 2 - note.get_width() // 2, cy))
 
 
-def draw_pause(screen):
+def draw_pause(screen, muted=False, volume=1.0):
     t    = pygame.time.get_ticks() / 1000.0
     panel = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     panel.fill((0, 0, 0, 140))
@@ -163,6 +179,15 @@ def draw_pause(screen):
 
     end_surf = sub_font.render("[ Q ]  END GAME", True, (180, 100, 100))
     screen.blit(end_surf, (WIDTH // 2 - end_surf.get_width() // 2, HEIGHT // 2 + 100))
+
+    if muted:
+        audio_surf = sub_font.render("[ M ]  AUDIO: MUTED", True, (230, 80, 80))
+    else:
+        audio_surf = sub_font.render(f"[ M ]  AUDIO: ON  (VOL {int(max(0, min(1, volume)) * 100)}%)", True, (120, 200, 170))
+    screen.blit(audio_surf, (WIDTH // 2 - audio_surf.get_width() // 2, HEIGHT // 2 + 125))
+
+    vol_hint = sub_font.render("[ ] ] VOLUME UP      [ [ ] VOLUME DOWN", True, (90, 120, 160))
+    screen.blit(vol_hint, (WIDTH // 2 - vol_hint.get_width() // 2, HEIGHT // 2 + 150))
 
 
 def draw_shop(screen, font, points, owned_weapons):

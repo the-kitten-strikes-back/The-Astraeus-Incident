@@ -26,6 +26,7 @@ from core.settings import (
     WEAPON_PICKUP_RANGE,
     LEVEL_POINTS,
     get_music_for_level,
+    FREEZE_AUDIO_RATE,
 )
 from core.level import load_level
 from player.player import Player
@@ -48,6 +49,7 @@ from systems.ui import (
     draw_room_label,
     draw_scifi_hud,
     draw_sniper_scope,
+    draw_audio_status,
 )
 from systems.minimap import draw_minimap
 from systems.rewards import (
@@ -93,6 +95,7 @@ from systems.dogfight import (
     draw_consoles,
     draw_console_prompt,
 )
+from systems import audio
 
 class Game:
     def __init__(self):
@@ -101,6 +104,7 @@ class Game:
             pygame.mixer.init()
         except pygame.error:
             pass
+        audio.init_channels()
 
         pygame.event.set_allowed(None)
         pygame.event.set_allowed([
@@ -110,6 +114,7 @@ class Game:
 
         self.time_scale   = 1.0
         self.time_frozen  = False
+        self._was_frozen  = False
         self.screen       = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock        = pygame.time.Clock()
         pygame.event.set_grab(True)
@@ -420,11 +425,13 @@ class Game:
         self.cutscene_map = self._build_cutscene_map()
 
         self.state    = "menu"
-        self.settings = {"sensitivity": 0.003, "fullscreen": True}
+        self.settings = {"sensitivity": 0.003, "fullscreen": True, "volume": 1.0, "muted": False}
         self.save_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "save.json"
         )
         self.load_save()
+        audio.set_master(self.settings.get("volume", 1.0))
+        audio.set_muted(self.settings.get("muted", False))
         self.load_current_level(play_music=False)
         self.state = "opening_cutscene"
         self.save_game()
@@ -712,6 +719,12 @@ class Game:
                 self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
             else:
                 self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        volume = data.get("volume")
+        if isinstance(volume, (int, float)):
+            self.settings["volume"] = max(0.0, min(1.0, float(volume)))
+        muted = data.get("muted")
+        if isinstance(muted, bool):
+            self.settings["muted"] = muted
         ammo = data.get("ammo")
         if isinstance(ammo, list):
             for weapon, value in zip(self.player.weapons, ammo):
@@ -731,6 +744,8 @@ class Game:
             "health":      self.player.health,
             "sensitivity": self.settings.get("sensitivity", 0.003),
             "fullscreen":  self.settings.get("fullscreen", True),
+            "volume":      self.settings.get("volume", 1.0),
+            "muted":       self.settings.get("muted", False),
             "ammo":        [w.ammo for w in self.player.weapons],
             "labyrinth":   self.labyrinth_engine.snapshot(),
         }
@@ -883,7 +898,7 @@ class Game:
         self.state = "level_reward"
         try:
             if os.path.exists(EFFECT_FILES["level_up"]):
-                pygame.mixer.Sound(EFFECT_FILES["level_up"]).play()
+                audio.play_sound(EFFECT_FILES["level_up"])
         except (KeyError, pygame.error):
             pass
         pygame.event.set_grab(False)
@@ -1004,7 +1019,7 @@ class Game:
         if self.player.apply_damage(damage):
             try:
                 if os.path.exists(EFFECT_FILES["player_hit"]):
-                    pygame.mixer.Sound(EFFECT_FILES["player_hit"]).play()
+                    audio.play_sound(EFFECT_FILES["player_hit"])
             except (KeyError, pygame.error):
                 pass
             self.hit_flash       = 12
@@ -1027,6 +1042,17 @@ class Game:
             self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         self.save_game()
 
+    def toggle_mute(self):
+        self.settings["muted"] = not self.settings.get("muted", False)
+        audio.set_muted(self.settings["muted"])
+        self.save_game()
+
+    def adjust_volume(self, delta):
+        volume = max(0.0, min(1.0, self.settings.get("volume", 1.0) + delta))
+        self.settings["volume"] = volume
+        audio.set_master(volume)
+        self.save_game()
+
     def play_music_for_level(self, level):
         if not self.music_enabled:
             return
@@ -1035,8 +1061,9 @@ class Game:
         music_path = get_music_for_level(level)
         if music_path and os.path.exists(music_path):
             try:
+                audio.set_music_path(music_path)
                 pygame.mixer.music.load(music_path)
-                pygame.mixer.music.set_volume(0.6)
+                pygame.mixer.music.set_volume(audio.music_volume(0.6))
                 pygame.mixer.music.play(-1)
                 self.current_music_level = level
             except pygame.error as e:
@@ -1050,9 +1077,10 @@ class Game:
         if not os.path.exists(self.death_audio_path):
             return
         try:
+            audio.set_music_path(self.death_audio_path)
             pygame.mixer.music.stop()
             pygame.mixer.music.load(self.death_audio_path)
-            pygame.mixer.music.set_volume(0.72)
+            pygame.mixer.music.set_volume(audio.music_volume(0.72))
             pygame.mixer.music.play(-1)
             self._death_audio_playing = True
         except pygame.error:
@@ -1079,9 +1107,10 @@ class Game:
             return
 
         try:
+            audio.set_music_path(self.opening_audio_1)
             pygame.mixer.music.stop()
             pygame.mixer.music.load(self.opening_audio_1)
-            pygame.mixer.music.set_volume(0.72)
+            pygame.mixer.music.set_volume(audio.music_volume(0.72))
             pygame.mixer.music.play()
             pygame.mixer.music.queue(self.opening_audio_2)
         except pygame.error:
@@ -1092,7 +1121,7 @@ class Game:
                 self._opening_audio_sound_last = pygame.mixer.Sound(self.opening_audio_last)
                 self._opening_audio_channel = self._opening_audio_sound_1.play()
                 if self._opening_audio_channel is not None:
-                    self._opening_audio_channel.set_volume(0.72)
+                    self._opening_audio_channel.set_volume(audio.music_volume(0.72))
             except pygame.error:
                 self._opening_audio_manual = False
 
@@ -1153,12 +1182,14 @@ class Game:
 
         try:
             if stage == "last_once":
+                audio.set_music_path(self.opening_audio_last)
                 pygame.mixer.music.load(self.opening_audio_last)
-                pygame.mixer.music.set_volume(0.72)
+                pygame.mixer.music.set_volume(audio.music_volume(0.72))
                 pygame.mixer.music.play()
             elif stage == "second_loop":
+                audio.set_music_path(self.opening_audio_2)
                 pygame.mixer.music.load(self.opening_audio_2)
-                pygame.mixer.music.set_volume(0.72)
+                pygame.mixer.music.set_volume(audio.music_volume(0.72))
                 pygame.mixer.music.play(-1)
             elif stage == "silent":
                 pygame.mixer.music.stop()
@@ -1169,11 +1200,11 @@ class Game:
                 if stage == "last_once":
                     self._opening_audio_channel_last = self._opening_audio_sound_last.play()
                     if self._opening_audio_channel_last is not None:
-                        self._opening_audio_channel_last.set_volume(0.72)
+                        self._opening_audio_channel_last.set_volume(audio.music_volume(0.72))
                 elif stage == "second_loop":
                     self._opening_audio_channel_2 = self._opening_audio_sound_2.play(loops=-1)
                     if self._opening_audio_channel_2 is not None:
-                        self._opening_audio_channel_2.set_volume(0.72)
+                        self._opening_audio_channel_2.set_volume(audio.music_volume(0.72))
                 elif stage == "silent":
                     pass
             except pygame.error:
@@ -1208,7 +1239,7 @@ class Game:
         if fired:
             try:
                 if os.path.exists(EFFECT_FILES["laser"]):
-                    pygame.mixer.Sound(EFFECT_FILES["laser"]).play()
+                    audio.play_sound(EFFECT_FILES["laser"])
             except (KeyError, pygame.error):
                 pass
             self.screen_zoom = max(self.screen_zoom, 0.03)
@@ -1300,6 +1331,12 @@ class Game:
                         self.time_scale  = 0.1 if self.time_frozen else 1.0
                     if event.key == pygame.K_F11:
                         self.toggle_fullscreen()
+                    if event.key == pygame.K_m:
+                        self.toggle_mute()
+                    if event.key == pygame.K_RIGHTBRACKET:
+                        self.adjust_volume(0.1)
+                    if event.key == pygame.K_LEFTBRACKET:
+                        self.adjust_volume(-0.1)
                     if event.key == pygame.K_e:
                         if not self._try_access_console():
                             self._toggle_nearby_door()
@@ -1346,6 +1383,12 @@ class Game:
                 elif self.state == "pause":
                     if event.key == pygame.K_ESCAPE:
                         self.state = "playing"
+                    if event.key == pygame.K_m:
+                        self.toggle_mute()
+                    if event.key == pygame.K_RIGHTBRACKET:
+                        self.adjust_volume(0.1)
+                    if event.key == pygame.K_LEFTBRACKET:
+                        self.adjust_volume(-0.1)
                     if event.key == pygame.K_i:
                         self.state = "shop"
                     if event.key == pygame.K_F11:
@@ -1443,6 +1486,42 @@ class Game:
         self.screen.fill((0, 0, 0))
         self.screen.blit(zoomed, (sx, sy))
 
+    def _current_music_path(self):
+        if getattr(self, "_death_audio_playing", False):
+            return self.death_audio_path
+        if self.current_level_index >= 0:
+            return get_music_for_level(self.current_level_index)
+        return None
+
+    def _update_temporal_sounds(self):
+        frozen = self.time_frozen
+        if frozen != self._was_frozen:
+            if frozen:
+                audio.begin_freeze(FREEZE_AUDIO_RATE, self._current_music_path())
+            else:
+                audio.end_freeze()
+            self._was_frozen = frozen
+
+        if self.state in {"playing", "loop"}:
+            if self.time_dilation.active:
+                audio.start_loop("dilation", EFFECT_FILES["dilation"])
+            else:
+                audio.stop_loop("dilation")
+
+            if self.temporal_echo.active_count > 0:
+                audio.start_loop("echo", EFFECT_FILES["echo"])
+            else:
+                audio.stop_loop("echo")
+
+            if self.time_rewind.rewinding:
+                audio.start_loop("rewind", EFFECT_FILES["rewind"])
+            else:
+                audio.stop_loop("rewind")
+        else:
+            audio.stop_loop("dilation")
+            audio.stop_loop("echo")
+            audio.stop_loop("rewind")
+
     def update(self):
         if self.state == "opening_cutscene":
             self._start_opening_cutscene_audio()
@@ -1456,6 +1535,8 @@ class Game:
             self._start_death_audio()
         elif self._death_audio_playing:
             self._stop_death_audio()
+
+        self._update_temporal_sounds()
 
         if self.state == "labyrinth":
             if self.labyrinth_feedback_timer > 0:
@@ -2098,7 +2179,7 @@ class Game:
             target_w    = max(1, int(WIDTH  * zoom * zoom_pulse))
             target_h    = max(1, int(HEIGHT * zoom * zoom_pulse))
             scaled      = pygame.transform.smoothscale(scene, (target_w, target_h))
-            angle       = max(-12.0, min(12.0, self.roll_angle + self.gravity_tilt.angle))
+            angle       = max(-50.0, min(50.0, self.roll_angle + self.gravity_tilt.angle))
             if abs(angle) > 0.02:
                 scaled = pygame.transform.rotozoom(scaled, angle, 1.0)
 
@@ -2181,6 +2262,11 @@ class Game:
                 draw_scifi_hud(self.screen, self.ui_phase, alert=self.hit_flash > 0 or self.game_over)
                 draw_crosshair(self.screen, self.hit_marker > 0, pulse)
                 draw_level_hud(self.screen, self.hud_font, self.current_level_index, self.player)
+                draw_audio_status(
+                    self.screen, self.hud_font,
+                    self.settings.get("muted", False),
+                    self.settings.get("volume", 1.0),
+                )
                 draw_ammo(self.screen, self.hud_font, self.player)
                 draw_score(self.screen, self.hud_font, self.score, self.kills,
                            self.score_pulse / 10 if self.score_pulse > 0 else 0.0)
@@ -2234,7 +2320,11 @@ class Game:
                         self.reset_game()
 
                 if self.state == "pause":
-                    draw_pause(self.screen)
+                    draw_pause(
+                        self.screen,
+                        self.settings.get("muted", False),
+                        self.settings.get("volume", 1.0),
+                    )
 
                 if self.state == "shop":
                     draw_shop(self.screen, self.hud_font, self.points, self.player.owned_weapons)

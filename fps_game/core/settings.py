@@ -131,7 +131,15 @@ EFFECT_FILES = {
     "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
     "reload": os.path.join(EFFECTS_DIR, "reload.mp3"),
     "gunshot": os.path.join(EFFECTS_DIR, "laser.mp3"),
+    "dilation": os.path.join(EFFECTS_DIR, "dilation.mp3"),
+    "echo": os.path.join(EFFECTS_DIR, "echo.mp3"),
+    "rewind": os.path.join(EFFECTS_DIR, "rewind.mp3"),
 }
+
+# Time-freeze audio slowdown (1.0 = normal speed, 0.1 = 10x slower).
+FREEZE_AUDIO_RATE = 0.3
+# Seconds of the current music track captured for the slowed freeze loop.
+FREEZE_AUDIO_WINDOW = 30
 
 def get_music_for_level(level):
     """Get the music file path for a given level."""

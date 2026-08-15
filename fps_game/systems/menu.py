@@ -63,6 +63,7 @@ def draw_menu(screen):
         "WASD: MOVE     MOUSE: AIM     LMB: FIRE     R: RELOAD / REWIND",
         "Q: TIME DILATION     G: TEMPORAL ECHO     E: DOOR",
         "1/2/3: WEAPON     Z/X/C/V: GRENADES     ESC: PAUSE",
+        "M: MUTE     [ / ]: VOLUME",
     ]
     cy2 = HEIGHT - 80
     for line in controls:

@@ -5,6 +5,7 @@ import pygame
 
 from core.settings import HALF_FOV, WIDTH, FOV, NUM_RAYS, HALF_HEIGHT, TILE
 from utils.math_utils import is_wall
+from systems import audio
 
 
 # ── Grenade type definitions ──────────────────────────────────────────────────
@@ -127,7 +128,7 @@ class GrenadeSystem:
                     import os
                     explosion_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "sounds", "effects", "explosion.mp3")
                     if os.path.exists(explosion_path):
-                        pygame.mixer.Sound(explosion_path).play()
+                        audio.play_sound(explosion_path)
                 except Exception:
                     pass
                 self.grenades.remove(grenade)

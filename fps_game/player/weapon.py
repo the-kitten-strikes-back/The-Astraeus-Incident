@@ -5,6 +5,7 @@ import os
 import pygame
 
 from core.settings import EFFECT_FILES, WIDTH, HEIGHT, DELTA_ANGLE, WEAPON_DEFAULT_IMG, WEAPON_IMAGE_MAP
+from systems import audio
 
 ENEMY_HITBOX_SCALE = 0.62
 ENEMY_HITBOX_MIN = 10
@@ -163,7 +164,7 @@ class WeaponSystem:
                 self.reloading = False
                 try:
                     if os.path.exists(EFFECT_FILES["reload"]):
-                        pygame.mixer.Sound(EFFECT_FILES["reload"]).play()
+                        audio.play_sound(EFFECT_FILES["reload"])
                 except (KeyError, pygame.error):
                     pass
 
