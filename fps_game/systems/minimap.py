@@ -5,7 +5,7 @@ import pygame
 from core.settings import TILE
 
 
-def _collect_bounds(world, player, enemies, health_packs, doors=None):
+def _collect_bounds(world, player, enemies, health_packs, doors=None, consoles=None):
     tiles = list(world.keys())
     if tiles:
         min_tx = min(x for x, _ in tiles) // TILE
@@ -25,6 +25,9 @@ def _collect_bounds(world, player, enemies, health_packs, doors=None):
     if doors:
         for dx, dy in doors.keys():
             extra_points.append((dx + TILE // 2, dy + TILE // 2))
+    if consoles:
+        for cx, cy in consoles:
+            extra_points.append((cx, cy))
 
     for px, py in extra_points:
         tx = int(px // TILE)
@@ -47,6 +50,7 @@ def draw_minimap(
     rooms=None,
     room_colors=None,
     doors=None,
+    consoles=None,
 ):
     if not world:
         return
@@ -56,7 +60,7 @@ def draw_minimap(
     margin = 10
     padding = 6
 
-    min_tx, min_ty, max_tx, max_ty = _collect_bounds(world, player, enemies, health_packs, doors)
+    min_tx, min_ty, max_tx, max_ty = _collect_bounds(world, player, enemies, health_packs, doors, consoles)
     tiles_w = max_tx - min_tx + 1
     tiles_h = max_ty - min_ty + 1
 
@@ -138,6 +142,13 @@ def draw_minimap(
         pygame.draw.circle(surf, color, (int(ex), int(ey)), r)
         if is_boss and enemy["alive"]:
             pygame.draw.circle(surf, (255, 200, 80), (int(ex), int(ey)), r, 1)
+
+    if consoles:
+        for cx, cy in consoles:
+            mpx, mpy = to_minimap(cx, cy)
+            r = max(3, tile_size // 2 + 1)
+            pygame.draw.rect(surf, (40, 200, 255), (int(mpx) - r, int(mpy) - r, r * 2, r * 2))
+            pygame.draw.rect(surf, (100, 240, 255), (int(mpx) - r, int(mpy) - r, r * 2, r * 2), 1)
 
     px, py = to_minimap(player.x, player.y)
     pr = max(2, tile_size // 2 + 1)

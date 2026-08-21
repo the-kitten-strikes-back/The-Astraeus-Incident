@@ -1,12 +1,12 @@
 {
-  "level": 19,
-  "score": 70,
-  "kills": 3,
-  "points": 3500,
+  "level": 0,
+  "score": 0,
+  "kills": 0,
+  "points": 1300,
   "owned_weapons": [
     "Pistol"
   ],
-  "health": 90,
+  "health": 92,
   "sensitivity": 0.001,
   "fullscreen": true,
   "volume": 1.0,

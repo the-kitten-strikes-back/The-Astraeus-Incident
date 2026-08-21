@@ -632,6 +632,34 @@ def draw_consoles(screen, consoles, player, depth_buffer, anim_time):
                 fill = int(bw * (0.4 + 0.6 * abs(math.sin(anim_time * 1.5 + i))))
                 pygame.draw.rect(screen, (60, 160, 255), (bx, by, fill, bh))
 
+            marker_y = int(y - size * 0.6 + math.sin(anim_time * 2.5) * 6)
+            marker_x = int(x + size // 2)
+            diamond_r = max(6, int(size * 0.2))
+            diamond_pulse = 0.5 + 0.5 * math.sin(anim_time * 4.0)
+            a = int(140 + 80 * diamond_pulse)
+            dm = pygame.Surface((diamond_r * 4, diamond_r * 4), pygame.SRCALPHA)
+            pts = [
+                (diamond_r * 2, diamond_r * 2 - diamond_r),
+                (diamond_r * 2 + diamond_r, diamond_r * 2),
+                (diamond_r * 2, diamond_r * 2 + diamond_r),
+                (diamond_r * 2 - diamond_r, diamond_r * 2),
+            ]
+            pygame.draw.polygon(dm, (40, 220, 255, a), pts)
+            pygame.draw.polygon(dm, (150, 255, 255, min(255, a + 50)), pts, 2)
+            screen.blit(dm, (marker_x - diamond_r * 2, marker_y - diamond_r * 2))
+
+            if dist < 400:
+                label_font = pygame.font.SysFont("courier", 14, bold=True)
+                dist_text = f"CONSOLE  {int(dist)}u"
+                label = label_font.render(dist_text, True, (90, 210, 255))
+                label.set_alpha(int(160 + 60 * diamond_pulse))
+                label_x = int(x + size // 2 - label.get_width() // 2)
+                label_y = int(y + size // 2 + size * 0.55 + 4)
+                shadow = label_font.render(dist_text, True, (0, 0, 0))
+                shadow.set_alpha(120)
+                screen.blit(shadow, (label_x + 1, label_y + 1))
+                screen.blit(label, (label_x, label_y))
+
 
 def draw_console_prompt(screen, font, near):
     if not near:

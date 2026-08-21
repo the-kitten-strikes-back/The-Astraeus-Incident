@@ -27,6 +27,7 @@ from core.settings import (
     LEVEL_POINTS,
     get_music_for_level,
     FREEZE_AUDIO_RATE,
+    DELTA_ANGLE,
 )
 from core.level import load_level
 from player.player import Player
@@ -98,6 +99,8 @@ from systems.dogfight import (
 from systems.quantum_puzzles import QuantumPuzzleSystem
 from systems.entity_boss import EntityBossFight
 from systems.ship_chaos import ShipChaosSystem
+from systems.entity_taunts import EntityTaunts
+from systems.final_boss import FinalBoss
 from systems import audio
 
 class Game:
@@ -171,10 +174,13 @@ class Game:
         self.quantum_puzzles = QuantumPuzzleSystem()
         self.entity_boss = EntityBossFight()
         self.ship_chaos = ShipChaosSystem()
+        self.entity_taunts = EntityTaunts()
+        self.final_boss = FinalBoss()
         self.core_entrance_tile = None
 
         self.level_paths = sorted(
-            glob.glob(f"{LEVELS_DIR}/level*.txt"),
+            [p for p in glob.glob(f"{LEVELS_DIR}/level*.txt")
+             if "final_boss" not in os.path.basename(p)],
             key=lambda path: int(
                 "".join(ch for ch in os.path.basename(path) if ch.isdigit()) or 0
             ),
@@ -690,6 +696,7 @@ class Game:
         self.gravity_tilt.enter_level(self.current_level_index)
         self.zero_g.enter_level(self.current_level_index)
         self.dogfight.reset_for_level()
+        self.entity_taunts.enter_level(self.current_level_index)
         self._console_hint_timer = 0
         if play_music:
             self.play_music_for_level(self.current_level_index)
@@ -947,6 +954,24 @@ class Game:
         self.player.current_weapon_index = 0
         self.player.refresh_owned_ammo()
         self.save_game()
+
+    def _enter_final_boss(self):
+        self.entity_boss.active = False
+        (self.world, self.enemies, self.health_packs, self.weapon_pickups, spawn,
+         self.rooms, self.doors, self.consoles, _) = load_level(
+            os.path.join(LEVELS_DIR, "level_final_boss.txt")
+        )
+        self.player.x, self.player.y = spawn
+        self.player.angle = 0
+        self.player.health = self.player.max_health
+        self.player.owned_weapons = {"Pistol"}
+        self.player.current_weapon_index = 0
+        self.player.refresh_owned_ammo()
+        self.final_boss.start(self.world, self.doors, self.player)
+        self.state = "final_boss"
+        pygame.event.set_grab(True)
+        pygame.mouse.set_visible(False)
+        pygame.mixer.music.stop()
 
     def _continue_from_reward(self):
         pygame.event.set_grab(True)
@@ -1279,6 +1304,21 @@ class Game:
         if hit_any:
             self.hit_marker = 6
             self.chromatic_timer = max(self.chromatic_timer, 4)
+        if fired and self.state == "final_boss" and self.final_boss.active:
+            boss = self.final_boss
+            dx = boss.boss_x - self.player.x
+            dy = boss.boss_y - self.player.y
+            dist = math.hypot(dx, dy)
+            theta = math.atan2(dy, dx)
+            delta = (theta - self.player.angle + math.pi) % (2 * math.pi) - math.pi
+            boss_hit_angle = math.atan2(48, max(1.0, dist))
+            if abs(delta) < max(DELTA_ANGLE * 2, boss_hit_angle):
+                if dist < 640:
+                    weapon = self.player.get_weapon()
+                    boss._on_boss_hit(self.player)
+                    hit_any = True
+                    self.hit_marker = 6
+                    self.chromatic_timer = max(self.chromatic_timer, 4)
         if fired:
             try:
                 if os.path.exists(EFFECT_FILES["laser"]):
@@ -1460,12 +1500,24 @@ class Game:
                 elif self.state == "entity_chaos":
                     if event.key == pygame.K_ESCAPE:
                         self.state = "pause"
+                    if event.key == pygame.K_l:
+                        self.ship_chaos.stop()
+                        self._enter_quantum_puzzles()
 
                 elif self.state == "quantum_puzzles":
                     self.quantum_puzzles.handle_event(event)
 
                 elif self.state == "entity_bossfight":
                     self.entity_boss.handle_event(event)
+                    if event.key == pygame.K_F10:
+                        self.entity_boss.victory = True
+
+                elif self.state == "final_boss":
+                    self.final_boss.handle_event(event)
+                    if event.key == pygame.K_ESCAPE:
+                        if self.final_boss.active:
+                            self.state = "pause"
+                            self.pause_return_state = "final_boss"
 
                 elif self.state == "ending_choice":
                     if event.key == pygame.K_1:
@@ -1489,8 +1541,11 @@ class Game:
                         self._continue_from_reward()
 
             if event.type == pygame.MOUSEMOTION:
-                if self.state in ("playing", "entity_chaos") and not self.game_over:
-                    self.mouse_dx += event.rel[0]
+                if self.state in ("playing", "entity_chaos", "final_boss") and not self.game_over:
+                    if self.state == "final_boss" and self.final_boss.screen_freeze:
+                        self.mouse_dx = 0
+                    else:
+                        self.mouse_dx += event.rel[0]
 
                     mouse_x, mouse_y = pygame.mouse.get_pos()
                     wrapped_x, wrapped_y = mouse_x, mouse_y
@@ -1506,11 +1561,11 @@ class Game:
                         pygame.mouse.set_pos(wrapped_x, wrapped_y)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if self.state in ("playing", "entity_chaos") and not self.game_over:
+                if self.state in ("playing", "entity_chaos", "final_boss") and not self.game_over:
                     if self.player.get_weapon().name != "Machine Gun":
                         self._process_player_shot()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                if self.state in ("playing", "entity_chaos") and not self.game_over:
+                if self.state in ("playing", "entity_chaos", "final_boss") and not self.game_over:
                     if self.player.get_weapon().name == "Sniper":
                         self.sniper_scoped = True
             if event.type == pygame.MOUSEBUTTONUP and event.button == 3:
@@ -1624,6 +1679,7 @@ class Game:
 
         if self.state == "entity_chaos":
             self.ship_chaos.update()
+            self.entity_taunts.update(1.0 / FPS)
 
             if not self.game_over:
                 keys = pygame.key.get_pressed()
@@ -1678,14 +1734,38 @@ class Game:
             dt = 1.0 / FPS
             self.entity_boss.update(dt)
             if self.entity_boss.victory:
-                self.state = "ending_choice"
-                self.cutscene_time = 0.0
-                self.save_game()
+                self._enter_final_boss()
             elif self.entity_boss.retry_failed:
                 self.state = "entity_chaos"
                 self.ship_chaos.start(self.world, self.doors, self.player,
                                        self.core_entrance_tile or (47, 35))
                 self.entity_boss.retry_failed = False
+            return
+
+        if self.state == "final_boss":
+            dt = 1.0 / FPS
+            self.final_boss.update(dt, self.player, self.world, self.doors)
+            if not self.final_boss.screen_freeze:
+                keys = pygame.key.get_pressed()
+                mx = self.mouse_dx
+                self.mouse_dx = 0
+                self.last_mouse_dx = mx
+                self.player.mouse_sensitivity = self.settings["sensitivity"]
+                self.player.move(self.world, mx, self.doors, speed_scale=1.0)
+                self.weapon_system.update_reload(self.player)
+                mouse_buttons = pygame.mouse.get_pressed()
+                if mouse_buttons[0] and self.player.get_weapon().name == "Machine Gun":
+                    self._process_player_shot()
+            else:
+                self.mouse_dx = 0
+            if self.final_boss.victory:
+                self.state = "ending_choice"
+                self.cutscene_time = 0.0
+                self.save_game()
+            elif self.player.health <= 0:
+                self.state = "game_over"
+                self.game_over = True
+            self._finish_frame_counters()
             return
 
         if self.state == "level_reward":
@@ -1720,6 +1800,7 @@ class Game:
             self.time_dilation.active,
             self.time_dilation.energy_ratio,
         )
+        self.entity_taunts.update(1.0 / FPS)
 
         if not self.game_over:
             keys = pygame.key.get_pressed()
@@ -2260,6 +2341,9 @@ class Game:
         elif self.state == "entity_bossfight":
             self.entity_boss.draw(self.screen)
 
+        elif self.state == "final_boss":
+            self._render_final_boss()
+
         else:
             scene = pygame.Surface((WIDTH, HEIGHT))
             scene.fill((6, 8, 14))
@@ -2415,11 +2499,12 @@ class Game:
                 draw_minimap(
                     self.screen, self.world, self.player, self.enemies,
                     self.health_packs, minimap_alpha, self.rooms, ROOM_COLOR_MAP,
-                    self.doors,
+                    self.doors, self.consoles,
                 )
                 draw_overlay_messages(
                     self.screen, self.glitch_messages, flicker=abs(math.sin(self.ui_phase))
                 )
+                self.entity_taunts.draw(self.screen)
                 near_console = self.dogfight.find_near_console(self.consoles, self.player)
                 if near_console:
                     draw_console_prompt(self.screen, self.hud_font, near_console)
@@ -2531,7 +2616,7 @@ class Game:
         draw_minimap(
             self.screen, self.world, self.player, self.enemies,
             self.health_packs, minimap_alpha, self.rooms, ROOM_COLOR_MAP,
-            self.doors,
+            self.doors, self.consoles,
         )
         draw_crosshair(self.screen, False, 0.0)
         draw_level_hud(self.screen, self.hud_font, self.current_level_index, self.player)
@@ -2539,6 +2624,7 @@ class Game:
         draw_overlay_messages(
             self.screen, self.glitch_messages, flicker=abs(math.sin(self.ui_phase))
         )
+        self.entity_taunts.draw(self.screen)
         draw_temporal_hud(
             self.screen,
             self.time_dilation,
@@ -2555,3 +2641,38 @@ class Game:
             if keys[pygame.K_r] and self.restart_cooldown <= 0:
                 self.ship_chaos.stop()
                 self.reset_game()
+
+    def _render_final_boss(self):
+        if self.final_boss.state == "setup" or self.final_boss.state == "death":
+            self.final_boss.draw(self.screen, self.player)
+            return
+
+        scene = pygame.Surface((WIDTH, HEIGHT))
+        scene.fill((0, 0, 0))
+        scene.blit(self.ceiling_big, (0, 0))
+        scene.fill((2, 33, 41), pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
+        self.depth_buffer = raycast(
+            self.world, self.player, scene,
+            self.wall_textures, self.doors, self.door_texture,
+        )
+        self.weapon_system.draw_weapon(
+            scene, self.player,
+            bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
+        )
+        zoom = 1.0 + self.screen_zoom
+        target_w = max(1, int(WIDTH * zoom))
+        target_h = max(1, int(HEIGHT * zoom))
+        scaled = pygame.transform.smoothscale(scene, (target_w, target_h))
+        shake_x = shake_y = 0
+        if self.shake > 0:
+            shake_x = int((self.shake * 0.6) * (1 if int(time.time() * 1000) % 2 == 0 else -1))
+            shake_y = int((self.shake * 0.6) * (-1 if int(time.time() * 1000) % 3 == 0 else 1))
+        base_x = (WIDTH - scaled.get_width()) // 2 + shake_x
+        base_y = (HEIGHT - scaled.get_height()) // 2 + shake_y + int(self.bob_offset)
+        self.screen.fill((0, 0, 0))
+        self.screen.blit(scaled, (base_x, base_y))
+        if self.interior_grade:
+            self.screen.blit(self.interior_grade, (0, 0))
+        draw_crosshair(self.screen, False, 0.0)
+        self.final_boss.draw(self.screen, self.player, self.depth_buffer)
+        draw_ammo(self.screen, self.hud_font, self.player)
