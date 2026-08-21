@@ -4,7 +4,8 @@ import random
 
 from core.settings import WIDTH, HEIGHT
 
-OPENING_AUDIO_END = 24.74
+OPENING_EXPO_OFFSET = 50.0
+OPENING_AUDIO_END = OPENING_EXPO_OFFSET + 24.74
 OPENING_WORDS_START = OPENING_AUDIO_END + 0.35
 OPENING_SHIP_START = OPENING_WORDS_START + 7.2
 OPENING_CONSOLE_START = OPENING_SHIP_START + 7.6
@@ -161,9 +162,9 @@ def _draw_opening_console(surface, t, zoom=1.0):
     text = [
         "log. 001. WAKE UP...",
         "",
-        "THERES SOMETHING...",
-        "SOMETHING INSIDE THE CORE.",
-        "I think - i think its keeping the ship alive.",
+        "THE CREW IS GONE...",
+        "BUT THE CORE IS STILL ACTIVE.",
+        "Something in the core is keeping this ship alive.",
     ]
     text_font = pygame.font.SysFont("courier", 23, bold=True)
     y = screen.y + 92
@@ -273,6 +274,278 @@ def _draw_opening_ship_break(surface, t):
     surface.blit(frag, (0, 0))
 
 
+# ── Opening cinematic: cinematic intro helpers ──────────────────────────────
+
+_vignette_cache = None
+
+
+def _draw_vignette(screen):
+    global _vignette_cache
+    if _vignette_cache is None:
+        _vignette_cache = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        max_r = int((WIDTH ** 2 + HEIGHT ** 2) ** 0.5) // 2
+        for r in range(max_r, 0, -3):
+            ratio = r / max_r
+            alpha = int(200 * (1.0 - ratio) ** 2.8)
+            if alpha < 1:
+                continue
+            surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (0, 0, 0, alpha), (r, r), r)
+            _vignette_cache.blit(surf, (WIDTH // 2 - r, HEIGHT // 2 - r))
+    screen.blit(_vignette_cache, (0, 0))
+
+
+def _draw_film_grain(screen, t, intensity=0.3):
+    random.seed(int(t * 1000))
+    count = int(55 * intensity)
+    for _ in range(count):
+        px = random.randint(0, WIDTH - 1)
+        py = random.randint(0, HEIGHT - 1)
+        pv = random.randint(15, 55)
+        pa = random.randint(6, int(18 * intensity))
+        grain = pygame.Surface((2, 2), pygame.SRCALPHA)
+        grain.fill((pv, pv, pv, pa))
+        screen.blit(grain, (px, py))
+    random.seed()
+
+
+def _draw_dying_earth(screen, cx, cy, radius, death_progress, t=0.0):
+    for r in range(radius + 22, radius, -1):
+        ratio = (r - radius) / 22
+        alpha = int(45 * (1 - ratio))
+        surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (40, 120, 200, alpha), (r, r), r)
+        screen.blit(surf, (cx - r, cy - r))
+
+    for r in range(radius, 0, -5):
+        ratio = r / radius
+        cr = int(6 + 14 * ratio)
+        cg = int(12 + 20 * ratio)
+        cb = int(28 + 44 * ratio)
+        surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (cr, cg, cb, 245), (r, r), r)
+        screen.blit(surf, (cx - r, cy - r))
+
+    random.seed(99)
+    for i in range(42):
+        angle = random.uniform(0, math.pi * 2)
+        dist = random.uniform(0.18, 0.93) * radius
+        lx = cx + int(math.cos(angle) * dist)
+        ly = cy + int(math.sin(angle) * dist)
+        death_time = random.uniform(0.0, 1.0)
+        if death_progress < death_time:
+            flicker = 0.55 + 0.45 * math.sin(t * 3.2 + i * 1.9)
+            brightness = int(210 * flicker)
+            sz = random.randint(1, 3)
+            glow = pygame.Surface((sz * 6, sz * 6), pygame.SRCALPHA)
+            pygame.draw.circle(glow, (brightness, int(brightness * 0.78),
+                               int(brightness * 0.28), int(85 * flicker)),
+                               (sz * 3, sz * 3), sz * 3)
+            screen.blit(glow, (lx - sz * 3, ly - sz * 3))
+            pygame.draw.circle(screen, (brightness, int(brightness * 0.88),
+                               int(brightness * 0.48)), (lx, ly), sz)
+    random.seed()
+
+
+def _draw_assembly_flash(screen, cx, cy, t, max_radius=220):
+    for i in range(6):
+        ring_t = t - i * 0.1
+        if ring_t < 0:
+            continue
+        r = int(ring_t * max_radius / 0.7)
+        alpha = int(220 * max(0, 1 - ring_t / 0.7))
+        if alpha < 1 or r < 1:
+            continue
+        surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (180, 220, 255, alpha), (r, r), r, 2)
+        screen.blit(surf, (cx - r, cy - r))
+
+
+def _draw_ship_assemble(screen, cx, cy, t):
+    hull = [(32, 110), (110, 68), (290, 55), (452, 92),
+            (498, 112), (452, 132), (290, 165), (110, 152)]
+    nose = [(28, 110), (92, 86), (92, 134)]
+    wing_l = [(120, 82), (42, 48), (12, 56), (62, 100)]
+    wing_r = [(120, 138), (42, 172), (12, 164), (62, 120)]
+
+    pieces = [
+        (hull, (-420, -320), 0.0),
+        (nose, (WIDTH + 320, -240), 0.25),
+        (wing_l, (-340, HEIGHT + 220), 0.45),
+        (wing_r, (WIDTH + 340, HEIGHT + 220), 0.55),
+    ]
+
+    ship_surf = pygame.Surface((520, 220), pygame.SRCALPHA)
+    all_arrived = True
+
+    for poly, start, delay in pieces:
+        piece_t = max(0.0, t - delay)
+        dur = 1.1
+        if piece_t <= 0:
+            all_arrived = False
+            continue
+        prog = min(1.0, piece_t / dur)
+        ease = 1 - (1 - prog) ** 3
+
+        sx, sy = start
+        ex = cx - 260
+        ey = cy - 110
+        cur_x = sx + (ex - sx) * ease
+        cur_y = sy + (ey - sy) * ease
+
+        for k in range(3):
+            tt = max(0.0, prog - k * 0.07)
+            te = 1 - (1 - tt) ** 3
+            tx = sx + (ex - sx) * te
+            ty = sy + (ey - sy) * te
+            ta = max(0, 55 - k * 18)
+            trail = pygame.Surface((520, 220), pygame.SRCALPHA)
+            pygame.draw.polygon(trail, (80, 180, 255, ta),
+                                [(p[0] + tx - cur_x, p[1] + ty - cur_y) for p in poly])
+            ship_surf.blit(trail, (0, 0))
+
+        pygame.draw.polygon(ship_surf, (80, 180, 255, 210),
+                            [(p[0] + cur_x, p[1] + cur_y) for p in poly])
+        pygame.draw.polygon(ship_surf, (130, 210, 255, 170),
+                            [(p[0] + cur_x, p[1] + cur_y) for p in poly], 2)
+
+    if all_arrived and t > 1.8:
+        ship_surf.fill((0, 0, 0, 0))
+        pygame.draw.polygon(ship_surf, (12, 18, 40, 240), hull)
+        pygame.draw.polygon(ship_surf, (80, 180, 255, 240), hull, 3)
+        pygame.draw.polygon(ship_surf, (90, 40, 150, 240), nose)
+        pygame.draw.polygon(ship_surf, (130, 80, 220, 240), wing_l)
+        pygame.draw.polygon(ship_surf, (130, 80, 220, 240), wing_r)
+        pygame.draw.rect(ship_surf, (30, 120, 200, 240), (452, 95, 42, 30))
+        glow_a = int(160 + 90 * math.sin(t * 4.5))
+        pygame.draw.circle(ship_surf, (60, 240, 255, glow_a), (473, 111), 8)
+        for i in range(4):
+            pygame.draw.line(ship_surf, (70, 220, 255, 200),
+                             (122 + i * 58, 92), (122 + i * 58, 128), 2)
+            pygame.draw.circle(ship_surf, (60, 240, 255, glow_a),
+                               (170 + i * 40, 111), 4)
+
+    screen.blit(ship_surf, (0, 0))
+
+
+def _draw_speed_lines(screen, t, intensity=1.0):
+    cx, cy = WIDTH // 2, HEIGHT // 2
+    line_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    random.seed(77)
+    for i in range(35):
+        y = random.randint(0, HEIGHT)
+        length = random.randint(80, 320)
+        speed = random.uniform(0.6, 1.6)
+        offset = (t * speed * 420 * intensity) % (WIDTH + length)
+        x = -length + offset
+        alpha = int(45 * intensity * random.uniform(0.3, 1.0))
+        pygame.draw.line(line_surf, (180, 210, 255, alpha),
+                         (int(x), y), (int(x + length), y), 1)
+    random.seed()
+    screen.blit(line_surf, (0, 0))
+
+
+def _draw_cryo_corridor(screen, t):
+    screen.fill((5, 7, 13))
+    cx, cy = WIDTH // 2, HEIGHT // 2
+    flicker = (math.sin(t * 3.7) + 1) * 0.5
+
+    for i in range(7):
+        depth = 0.12 + i * 0.13
+        w = int(WIDTH * depth)
+        h = int(HEIGHT * depth)
+        rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
+        brightness = int(12 + 15 * depth + 8 * flicker)
+        pygame.draw.rect(screen, (brightness, brightness + 2, brightness + 8), rect, 1)
+
+    for x in range(cx - 220, cx + 240, 75):
+        la = int(40 + 30 * flicker)
+        pygame.draw.rect(screen, (la, la + 18, la + 45), (x - 12, 6, 24, 5))
+
+    for i, x in enumerate(range(cx - 300, cx + 320, 95)):
+        pf = 0.55 + 0.45 * math.sin(t * 1.5 + i * 2.3)
+        pa = int(28 + 22 * pf)
+        pygame.draw.rect(screen, (pa, pa + 8, pa + 28), (x, HEIGHT // 2 - 52, 52, 104), 2)
+        glow = pygame.Surface((62, 114), pygame.SRCALPHA)
+        pygame.draw.rect(glow, (35, 90, 190, int(18 * pf)), (5, 5, 52, 104), border_radius=4)
+        screen.blit(glow, (x - 5, HEIGHT // 2 - 57))
+        if i != 3:
+            pygame.draw.rect(screen, (pa + 4, pa + 6, pa + 12),
+                             (x + 13, HEIGHT // 2 - 36, 26, 72))
+
+    for i in range(18):
+        px = (cx - 320 + i * 42 + int(math.sin(t * 0.3 + i) * 22)) % WIDTH
+        py = (HEIGHT // 2 + int(math.cos(t * 0.5 + i * 1.4) * 42)) % HEIGHT
+        pygame.draw.circle(screen, (140, 170, 215), (int(px), int(py)), 1)
+
+
+def _draw_quantum_invasion(screen, t, fx, fy, tx, ty):
+    num = 28
+    line_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    particles = []
+    for i in range(num):
+        prog = ((t * 0.85 + i * 0.065) % 1.0)
+        ease = prog * prog * (3 - 2 * prog)
+        px = fx + (tx - fx) * ease
+        py = fy + (ty - fy) * ease + math.sin(t * 3.2 + i * 1.15) * 16
+        particles.append((px, py, prog))
+
+        for k in range(3):
+            pp = max(0.0, prog - k * 0.035)
+            pe = pp * pp * (3 - 2 * pp)
+            tpx = fx + (tx - fx) * pe
+            tpy = fy + (ty - fy) * pe + math.sin(t * 3.2 + i * 1.15) * 16
+            ta = max(0, 75 - k * 22)
+            tdot = pygame.Surface((6, 6), pygame.SRCALPHA)
+            pygame.draw.circle(tdot, (155, 75, 255, ta), (3, 3), 3)
+            screen.blit(tdot, (int(tpx) - 3, int(tpy) - 3))
+
+        cols = [(155, 75, 255), (75, 195, 255), (195, 95, 255)]
+        col = cols[i % 3]
+        pa = int(155 + 85 * math.sin(t * 4.2 + i))
+        pygame.draw.circle(screen, col, (int(px), int(py)), 3)
+        gdot = pygame.Surface((14, 14), pygame.SRCALPHA)
+        pygame.draw.circle(gdot, (*col, pa // 2), (7, 7), 7)
+        screen.blit(gdot, (int(px) - 7, int(py) - 7))
+
+    for i in range(0, num - 1, 3):
+        x1, y1, _ = particles[i]
+        x2, y2, _ = particles[i + 1]
+        la = int(28 + 18 * math.sin(t * 2.1 + i))
+        pygame.draw.line(line_surf, (115, 55, 195, la),
+                         (int(x1), int(y1)), (int(x2), int(y2)), 1)
+    screen.blit(line_surf, (0, 0))
+
+
+def _draw_entity_flicker(screen, t):
+    cx, cy = WIDTH // 2, HEIGHT // 2
+    visible = math.sin(t * 8.5) > -0.3
+    if not visible:
+        return
+    alpha = max(0, min(255, int(185 + 80 * math.sin(t * 6.2))))
+    eye = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    pygame.draw.ellipse(eye, (155, 0, 195, alpha // 2),
+                        pygame.Rect(cx - 145, cy - 58, 290, 116), 3)
+    pygame.draw.circle(eye, (195, 18, 235, alpha),
+                       (cx, cy), int(25 + 11 * math.sin(t * 3.2)))
+    pygame.draw.circle(eye, (0, 0, 0, 255),
+                       (cx, cy), int(12 + 5 * math.sin(t * 4.1)))
+    pygame.draw.circle(eye, (175, 55, 255, alpha // 3),
+                       (cx, cy), int(38 + 12 * math.sin(t * 2.3)))
+    screen.blit(eye, (0, 0))
+
+    for i in range(22):
+        angle = (i / 22) * math.pi * 2 + t * 1.6
+        dist = 125 + 42 * math.sin(angle * 2.2 + t)
+        px = cx + int(math.cos(angle) * dist)
+        py = cy + int(math.sin(angle) * dist * 0.58)
+        pa = int(125 + 65 * math.sin(i + t * 3.1))
+        pygame.draw.circle(screen, (pa, 0, int(pa * 0.78)), (px, py), 2)
+
+
+# ── End of cinematic intro helpers ──────────────────────────────────────────
+
+
 def draw_opening_cutscene(screen, t, gun_sprite=None):
     screen.fill((0, 0, 0))
 
@@ -284,22 +557,349 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
     dull.fill((6, 10, 22, int(120 * pulse)))
     screen.blit(dull, (0, 0))
 
-    if t < OPENING_AUDIO_END:
-        if gun_sprite is not None and t > 1.35:
-            gun_t = t - 1.35
+    # ── CINEMATIC INTRO (0–50s) ─────────────────────────────────────────────
+
+    if t < 2.0:
+        screen.fill((0, 0, 0))
+        _draw_vignette(screen)
+        _draw_film_grain(screen, t, 0.45)
+        la = int(210 * min(1.0, t / 0.8))
+        lr = int(3 + 2 * math.sin(t * 4.2))
+        gdot = pygame.Surface((44, 44), pygame.SRCALPHA)
+        pygame.draw.circle(gdot, (175, 208, 255, la), (22, 22), lr * 3)
+        pygame.draw.circle(gdot, (220, 240, 255, la), (22, 22), lr)
+        screen.blit(gdot, (WIDTH // 2 - 22, HEIGHT // 2 - 22))
+        if t > 0.5:
+            font = pygame.font.SysFont("courier", 82, bold=True)
+            ta = int(255 * min(1.0, (t - 0.5) / 0.6))
+            surf = font.render("2144", True, (200, 220, 255))
+            surf.set_alpha(ta)
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 + 45))
+
+    elif t < 3.5:
+        screen.fill((0, 0, 0))
+        _draw_vignette(screen)
+        st = t - 2.0
+        prog = min(1.0, st / 1.0)
+        font = pygame.font.SysFont("courier", 82, bold=True)
+        txt = font.render("2144", True, (200, 220, 255))
+        w, h = txt.get_width(), txt.get_height()
+        cx, cy = WIDTH // 2 - w // 2, HEIGHT // 2 + 45
+        ns = 14
+        sh = h // ns
+        for i in range(ns):
+            ox = int(math.sin(st * 12.5 + i * 2.4) * 42 * prog)
+            oy = int(math.cos(st * 8.2 + i * 1.8) * 16 * prog)
+            a = int(255 * max(0, 1 - prog * 1.3))
+            if a < 1:
+                continue
+            sl = pygame.Surface((w, sh), pygame.SRCALPHA)
+            sl.blit(txt, (0, -i * sh))
+            sl.set_alpha(a)
+            screen.blit(sl, (cx + ox, cy + i * sh + oy))
+        _draw_opening_glitch_storm(screen, t, intensity=0.35 * prog)
+
+    elif t < 5.0:
+        screen.fill((0, 0, 0))
+        _draw_vignette(screen)
+        _draw_film_grain(screen, t, 0.35)
+        local = t - 3.5
+        font = pygame.font.SysFont("courier", 66, bold=True)
+        typed = animate_typewriter("EVERYTHING.", local, char_delay=0.08)
+        a = int(255 * min(1.0, local / 0.3))
+        surf = font.render(typed, True, (220, 235, 255))
+        surf.set_alpha(a)
+        screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
+
+    elif t < 8.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=85, drift=t * 2)
+        _draw_vignette(screen)
+        local = t - 5.0
+        er = int(125 * min(1.0, local / 2.2))
+        if er > 5:
+            _draw_dying_earth(screen, int(WIDTH * 0.56), int(HEIGHT * 0.48), er, 0.0, t)
+        ta = int(255 * min(1.0, max(0, local - 0.5) / 0.8))
+        if ta > 0:
+            tf = pygame.font.SysFont("courier", 50, bold=True)
+            surf = tf.render("EARTH, 2144", True, (200, 220, 255))
+            surf.set_alpha(ta)
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 3 - 35))
+            sf = pygame.font.SysFont("courier", 23)
+            sub = sf.render("The End of Energy", True, (140, 170, 210))
+            sub.set_alpha(int(ta * 0.7))
+            screen.blit(sub, (WIDTH // 2 - sub.get_width() // 2, HEIGHT // 3 + 28))
+
+    elif t < 16.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=85, drift=t * 2)
+        _draw_vignette(screen)
+        local = t - 8.0
+        dp = min(1.0, local / 7.5)
+        _draw_dying_earth(screen, int(WIDTH * 0.56), int(HEIGHT * 0.48), 125, dp, t)
+        bf = pygame.font.SysFont("courier", 17)
+        lines = [
+            ("By the year 2144, Earth has exhausted", 0.0),
+            ("its usable energy resources.", 0.5),
+            ("", 0),
+            ("Fossil fuels are gone.", 1.2),
+            ("Uranium reserves have been depleted.", 1.8),
+            ("Renewable infrastructure has collapsed.", 2.5),
+            ("", 0),
+            ("Civilization is not dying from war.", 3.5),
+            ("It is dying from silence.", 4.5),
+            ("", 0),
+            ("The planet is becoming a wasteland", 5.5),
+            ("because there is simply nothing left", 6.0),
+            ("to power it.", 6.5),
+        ]
+        xs, ys = 80, HEIGHT // 3 - 65
+        for idx, (line, delay) in enumerate(lines):
+            if not line:
+                continue
+            lt = max(0.0, local - delay)
+            if lt <= 0:
+                continue
+            typed = animate_typewriter(line, lt, char_delay=0.024)
+            a = int(225 * min(1.0, lt / 0.3))
+            surf = bf.render(typed, True, (180, 200, 230))
+            surf.set_alpha(a)
+            screen.blit(surf, (xs, ys + idx * 24))
+
+    elif t < 19.0:
+        screen.fill((0, 0, 0))
+        _draw_vignette(screen)
+        local = t - 16.0
+        _draw_opening_word_burst(screen, "BUT HUMANITY ISN'T QUITE FINISHED.",
+                                 local, duration=2.4)
+
+    elif t < 28.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=130, drift=t * 3)
+        _draw_vignette(screen)
+        local = t - 19.0
+        _draw_ship_assemble(screen, WIDTH // 2, HEIGHT // 2, local)
+        if 2.0 < local < 3.5:
+            _draw_assembly_flash(screen, WIDTH // 2, HEIGHT // 2, local - 2.0)
+        bf = pygame.font.SysFont("courier", 17)
+        tlines = [
+            ("Scientists develop a hybrid energy system", 0.0),
+            ("- oil and uranium, combined with", 0.5),
+            ("extraordinary efficiency.", 1.0),
+            ("", 0),
+            ("There is barely enough fuel left on Earth", 2.5),
+            ("for one final interstellar expedition.", 3.0),
+        ]
+        xs, ys = 80, 80
+        for idx, (line, delay) in enumerate(tlines):
+            if not line:
+                continue
+            lt = max(0.0, local - delay)
+            if lt <= 0:
+                continue
+            typed = animate_typewriter(line, lt, char_delay=0.024)
+            a = int(225 * min(1.0, lt / 0.3))
+            surf = bf.render(typed, True, (180, 200, 230))
+            surf.set_alpha(a)
+            screen.blit(surf, (xs, ys + idx * 24))
+        if local > 5.0:
+            ttl = pygame.font.SysFont("courier", 28, bold=True)
+            ta = int(255 * min(1.0, (local - 5.0) / 0.6))
+            surf = ttl.render("That expedition is called The Astraeus.", True, (200, 220, 255))
+            surf.set_alpha(ta)
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT - 145))
+
+    elif t < 32.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=130, drift=t * 4)
+        _draw_vignette(screen)
+        local = t - 28.0
+        _draw_speed_lines(screen, t, intensity=min(1.0, local / 1.5))
+        sx = int(WIDTH * 0.3 + math.sin(t * 0.3) * 10)
+        sy = int(HEIGHT * 0.5 + math.cos(t * 0.2) * 8)
+        _draw_opening_ship(screen, sx, sy, scale=0.3, alpha=int(210 * min(1.0, local / 0.5)))
+        if local > 0.5:
+            tf = pygame.font.SysFont("courier", 54, bold=True)
+            ta = int(255 * min(1.0, (local - 0.5) / 0.6))
+            main = tf.render("THE MISSION", True, (220, 240, 255))
+            red = tf.render("THE MISSION", True, (255, 78, 118))
+            cyan = tf.render("THE MISSION", True, (78, 198, 255))
+            main.set_alpha(ta)
+            red.set_alpha(int(ta * 0.55))
+            cyan.set_alpha(int(ta * 0.55))
+            tx = WIDTH // 2 - main.get_width() // 2
+            ty = HEIGHT // 2 - main.get_height() // 2
+            screen.blit(cyan, (tx - 4, ty))
+            screen.blit(red, (tx + 4, ty))
+            screen.blit(main, (tx, ty))
+
+    elif t < 40.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=130, drift=t * 4)
+        _draw_vignette(screen)
+        _draw_speed_lines(screen, t, intensity=max(0, 1.0 - (t - 32.0) / 7.0))
+        local = t - 32.0
+        bhx, bhy = int(WIDTH * 0.7), int(HEIGHT * 0.45)
+        bhr = int(60 + 85 * min(1.0, local / 6.0))
+        _draw_black_hole(screen, bhx, bhy, t, radius=bhr)
+        shx = int(WIDTH * 0.2 + local * 28)
+        shy = int(HEIGHT * 0.5 - local * 7)
+        _draw_opening_ship(screen, min(WIDTH - 220, shx), max(220, shy), scale=0.24, alpha=200)
+        bf = pygame.font.SysFont("courier", 17)
+        tlines = [
+            ("Target: the supermassive black hole", 0.0),
+            ("at the centre of the Milky Way.", 0.5),
+            ("", 0),
+            ("Objective: determine whether humanity", 1.5),
+            ("can harness the energy of gravity itself.", 2.0),
+            ("", 0),
+            ("If the answer is yes, Earth might", 3.5),
+            ("have a future.", 4.0),
+            ("", 0),
+            ("If the answer is no - there is no plan B.", 5.0),
+        ]
+        xs, ys = 80, HEIGHT // 3 - 45
+        for idx, (line, delay) in enumerate(tlines):
+            if not line:
+                continue
+            lt = max(0.0, local - delay)
+            if lt <= 0:
+                continue
+            typed = animate_typewriter(line, lt, char_delay=0.024)
+            a = int(225 * min(1.0, lt / 0.3))
+            surf = bf.render(typed, True, (180, 200, 230))
+            surf.set_alpha(a)
+            screen.blit(surf, (xs, ys + idx * 24))
+
+    elif t < 43.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=130, drift=t * 4)
+        _draw_vignette(screen)
+        bhx, bhy = int(WIDTH * 0.65), int(HEIGHT * 0.45)
+        pr = 142 + int(16 * math.sin(t * 3.1))
+        _draw_black_hole(screen, bhx, bhy, t, radius=pr)
+        local = t - 40.0
+        if local > 0:
+            for i in range(4):
+                rt = local - i * 0.38
+                if rt < 0:
+                    continue
+                rr = int(rt * 210)
+                ra = int(105 * max(0, 1 - rt / 1.6))
+                if ra > 0 and rr > 0:
+                    ring = pygame.Surface((rr * 2, rr * 2), pygame.SRCALPHA)
+                    pygame.draw.circle(ring, (178, 98, 255, ra), (rr, rr), rr, 2)
+                    screen.blit(ring, (bhx - rr, bhy - rr))
+        if local > 0.5:
+            _draw_opening_word_burst(screen, "SOMETHING IS ALREADY THERE.",
+                                     local - 0.5, duration=2.2)
+
+    elif t < 48.0:
+        screen.fill((0, 0, 0))
+        _draw_star_field(screen, t, count=130, drift=t * 4)
+        _draw_vignette(screen)
+        local = t - 43.0
+        bhx, bhy = int(WIDTH * 0.65), int(HEIGHT * 0.45)
+        _draw_black_hole(screen, bhx, bhy, t, radius=142)
+        if 1.0 < local < 3.8:
+            _draw_entity_flicker(screen, t)
+        if local > 2.2:
+            shx, shy = int(WIDTH * 0.24), int(HEIGHT * 0.5)
+            _draw_quantum_invasion(screen, local - 2.2, bhx, bhy, shx, shy)
+        if local > 2.8:
+            sa = int(185 + 55 * math.sin(t * 8.2))
+            _draw_opening_ship(screen, int(WIDTH * 0.24), int(HEIGHT * 0.5),
+                               scale=0.34, alpha=sa)
+        bf = pygame.font.SysFont("courier", 17)
+        tlines = [
+            ("The Astraeus reaches the black hole.", 0.0),
+            ("And humanity discovers it is not alone.", 0.5),
+            ("", 0),
+            ("Deep within the black hole is something", 1.5),
+            ("that should not exist.", 2.0),
+            ("", 0),
+            ("An entity.", 3.0),
+            ("", 0),
+            ("It is not biological.", 3.8),
+            ("It is not mechanical.", 4.3),
+            ("It is quantum.", 4.8),
+        ]
+        xs, ys = 80, 80
+        for idx, (line, delay) in enumerate(tlines):
+            if not line:
+                continue
+            lt = max(0.0, local - delay)
+            if lt <= 0:
+                continue
+            typed = animate_typewriter(line, lt, char_delay=0.024)
+            a = int(225 * min(1.0, lt / 0.3))
+            gx, gy = animate_glitch(t, 0.14) if idx >= 7 else (0, 0)
+            surf = bf.render(typed, True, (180, 200, 230))
+            surf.set_alpha(a)
+            screen.blit(surf, (xs + gx, ys + idx * 24 + gy))
+
+    elif t < 50.0:
+        screen.fill((0, 0, 0))
+        _draw_vignette(screen)
+        local = t - 48.0
+        if local < 1.2:
+            _draw_cryo_corridor(screen, t)
+            dying = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            dying.fill((0, 0, 0, int(210 * min(1.0, local / 1.0))))
+            screen.blit(dying, (0, 0))
+        bf = pygame.font.SysFont("courier", 17)
+        tlines = [
+            ("Through quantum entanglement, it finds", 0.0),
+            ("a way into the ship's computer.", 0.3),
+            ("", 0),
+            ("The Astraeus is no longer just a machine.", 0.8),
+            ("Something is controlling it.", 1.2),
+        ]
+        xs, ys = 80, HEIGHT // 2 - 42
+        for idx, (line, delay) in enumerate(tlines):
+            if not line:
+                continue
+            lt = max(0.0, local - delay)
+            if lt <= 0:
+                continue
+            typed = animate_typewriter(line, lt, char_delay=0.018)
+            a = int(225 * min(1.0, lt / 0.2))
+            surf = bf.render(typed, True, (180, 200, 230))
+            surf.set_alpha(a)
+            screen.blit(surf, (xs, ys + idx * 24))
+        if local > 1.5:
+            ft = local - 1.5
+            flash = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            flash.fill((255, 255, 255, int(255 * max(0, 1 - ft / 0.3))))
+            screen.blit(flash, (0, 0))
+        if local > 1.8:
+            bl = pygame.Surface((WIDTH, HEIGHT))
+            bl.fill((0, 0, 0))
+            bl.set_alpha(int(255 * min(1.0, (local - 1.8) / 0.2)))
+            screen.blit(bl, (0, 0))
+
+    # ── EXISTING CUTSCENE (shifted by OPENING_EXPO_OFFSET) ──────────────────
+
+    elif t < OPENING_AUDIO_END:
+        if gun_sprite is not None and t > OPENING_EXPO_OFFSET + 1.35:
+            gun_t = t - OPENING_EXPO_OFFSET - 1.35
             angle = -gun_t * 24.0
             scale = 0.82 + 0.04 * math.sin(t * 2.1)
             gun = pygame.transform.rotozoom(gun_sprite, angle, scale)
             gun.set_alpha(int(220 + 35 * math.sin(t * 2.4)))
             rect = gun.get_rect(center=(WIDTH // 2, HEIGHT // 2))
             glow = pygame.Surface((rect.width + 120, rect.height + 120), pygame.SRCALPHA)
-            pygame.draw.circle(glow, (90, 170, 255, 60), (glow.get_width() // 2, glow.get_height() // 2), min(glow.get_width(), glow.get_height()) // 3)
-            pygame.draw.circle(glow, (180, 90, 255, 30), (glow.get_width() // 2, glow.get_height() // 2), min(glow.get_width(), glow.get_height()) // 2 - 10, 8)
-            screen.blit(glow, (rect.centerx - glow.get_width() // 2, rect.centery - glow.get_height() // 2))
+            pygame.draw.circle(glow, (90, 170, 255, 60),
+                               (glow.get_width() // 2, glow.get_height() // 2),
+                               min(glow.get_width(), glow.get_height()) // 3)
+            pygame.draw.circle(glow, (180, 90, 255, 30),
+                               (glow.get_width() // 2, glow.get_height() // 2),
+                               min(glow.get_width(), glow.get_height()) // 2 - 10, 8)
+            screen.blit(glow, (rect.centerx - glow.get_width() // 2,
+                               rect.centery - glow.get_height() // 2))
             screen.blit(gun, rect.topleft)
 
     elif t < OPENING_WORDS_START:
-        # Brief beat after the audio chain ends: the weapon is gone, but the screen is still breathing.
         pass
 
     elif t < OPENING_SHIP_START:
@@ -323,14 +923,14 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
     elif t < OPENING_CONSOLE_START:
         _draw_opening_word_burst(screen, "SIDE.", 0.82, duration=1.15)
         _draw_opening_ship_break(screen, t - OPENING_SHIP_START + 4.0)
-        # As the ship passes, tear the words apart with extra debris and shake.
         drift = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         for _ in range(80):
             x = random.randint(0, WIDTH)
             y = random.randint(120, HEIGHT - 60)
             w = random.randint(8, 28)
             h = random.randint(2, 6)
-            col = random.choice([(80, 200, 255, 60), (160, 90, 255, 55), (40, 120, 220, 45)])
+            col = random.choice([(80, 200, 255, 60), (160, 90, 255, 55),
+                                 (40, 120, 220, 45)])
             pygame.draw.rect(drift, col, (x, y, w, h))
         drift.set_alpha(160)
         screen.blit(drift, (0, 0))
@@ -351,12 +951,12 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
             surf.set_alpha(int(255 * min(1.0, local / 0.5)))
             screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - 40))
         if local > 1.1:
-            line = "THERES SOMETHING... SOMETHING INSIDE THE CORE."
+            line = "THE CREW IS GONE..."
             surf = pause_font.render(line, True, (205, 235, 255))
             surf.set_alpha(int(255 * min(1.0, (local - 1.1) / 0.5)))
             screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 + 8))
         if local > 2.25:
-            line = "I think - i think its keeping the ship alive."
+            line = "BUT THE CORE IS STILL ACTIVE."
             surf = pause_font.render(line, True, (180, 220, 250))
             surf.set_alpha(int(255 * min(1.0, (local - 2.25) / 0.6)))
             screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 + 44))
@@ -366,18 +966,20 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
         font = pygame.font.SysFont("courier", 34, bold=True)
         local = t - (OPENING_LOG_START + 4.8)
         if local < 1.0:
-            surf = font.render("FIND THE CORE.", True, (215, 240, 255))
+            surf = font.render("REACH THE CORE.", True, (215, 240, 255))
             surf.set_alpha(int(255 * min(1.0, local / 0.35)))
-            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2,
+                               HEIGHT // 2 - surf.get_height() // 2))
 
     elif t < OPENING_LOG_START + 12.2:
         screen.fill((0, 0, 0))
         font = pygame.font.SysFont("courier", 34, bold=True)
         local = t - OPENING_FIX_START
         if local < 1.0:
-            surf = font.render("FIX THE ASTRAEUS.", True, (215, 240, 255))
+            surf = font.render("DISCOVER WHAT THE ENTITY WANTS.", True, (215, 240, 255))
             surf.set_alpha(int(255 * min(1.0, local / 0.35)))
-            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2))
+            screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2,
+                               HEIGHT // 2 - surf.get_height() // 2))
 
     elif t < OPENING_FINAL_GLITCH_START:
         screen.fill((0, 0, 0))
@@ -385,18 +987,20 @@ def draw_opening_cutscene(screen, t, gun_sprite=None):
         local = t - (OPENING_LOG_START + 12.2)
         if local < 1.8:
             lines = [
-                "AND STOP THE ENTITY AT THE HEART OF IT ALL...",
+                "AND END IT - BEFORE IT TAKES EVERYTHING.",
             ]
             for idx, line in enumerate(lines):
                 surf = font.render(line, True, (220, 240, 255))
                 surf.set_alpha(int(255 * min(1.0, local / 0.45)))
-                screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2, HEIGHT // 2 - surf.get_height() // 2 + idx * 38))
+                screen.blit(surf, (WIDTH // 2 - surf.get_width() // 2,
+                                   HEIGHT // 2 - surf.get_height() // 2 + idx * 38))
         _draw_opening_glitch_storm(screen, t, intensity=0.8)
 
     elif t < OPENING_END_TIME:
         _draw_opening_glitch_storm(screen, t, intensity=1.0)
         fade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        fade.fill((0, 0, 0, int(255 * min(1.0, (t - OPENING_FINAL_GLITCH_START) / 3.0))))
+        fade.fill((0, 0, 0, int(255 * min(1.0,
+                  (t - OPENING_FINAL_GLITCH_START) / 3.0))))
         screen.blit(fade, (0, 0))
 
     else:

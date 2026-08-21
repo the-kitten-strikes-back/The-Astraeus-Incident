@@ -1,22 +1,28 @@
 welcome to my new game, Astraeus.
 
-**The Astraeus Incident**
+**The Astraeus — Earth's Last Hope**
 
-Astraeus was never meant to reach its destination.
+Earth is dying. By 2144, every energy source has been exhausted. Fossil fuels, uranium, renewables — all gone. Civilization is collapsing not from war, but from silence.
 
-What began as a routine deep-space expedition has become something far worse. As the lone conscious presence aboard the drifting vessel, you awaken to fragmented systems, corrupted logs, and a reality that no longer behaves as it should.
+Humanity's final chance is The Astraeus — the last interstellar vessel, powered by a hybrid oil-uranium reactor. Its mission: orbit the supermassive black hole at the centre of the Milky Way and determine whether the energy of gravity itself can be harnessed to save Earth.
 
-Corridors shift. Signals repeat. Time fractures.
+But something is already there.
 
-An impossible anomaly has formed near the ship—a gravitational singularity that doesn’t just distort space, but memory, perception… and something deeper. Echoes of the crew linger in broken loops. Rooms appear where none existed. And something is watching from within the core.
+Trapped within the black hole, an entity — not biological, not mechanical, but quantum — finds a way into the ship through entanglement. It takes control of the quantum core. The crew vanishes.
 
-As you navigate the collapsing interior of Astraeus, you must piece together what happened, uncover the truth behind the anomaly, and decide whether escape is even possible.
+You awaken from emergency hibernation. The ship is running. The crew is gone. Something in the core is keeping it alive.
 
-Or if you were ever meant to leave at all.
+Through quantum entanglement with the entity, you gain the ability to slow, rewind, and bend time. But the entity is learning from every use. Temporal anomalies — echoes of a long-dead alien race — haunt every corridor.
+
+Reach the core. Discover what the entity wants. And end it — before it takes everything.
+
+**Two endings:**
+- **HARNESS** — Use time itself as energy. Send it home. Let humanity live. But you are no longer human.
+- **ANNIHILATION** — Destroy the entity, the ship, and the black hole. Earth dies with all evidence. Nothing remains.
 
 **This is not a story about survival.**
 
-It’s a story about understanding something that should not exist.
+It's a story about what you're willing to sacrifice for a species that may already be finished.
 
 ## Project LABYRINTH — Adaptive Puzzle Engine
 

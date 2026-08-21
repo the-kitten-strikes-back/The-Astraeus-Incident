@@ -13,6 +13,7 @@ def load_level(path):
     doors = {}
     consoles = []
     player_spawn = (150, 150)
+    core_entrance = None
 
     with open(path) as f:
         lines = [line.strip() for line in f.readlines()]
@@ -51,5 +52,7 @@ def load_level(path):
                 doors[(x, y)] = {"open": False}
             elif char == "J":
                 consoles.append((x + TILE // 2, y + TILE // 2))
+            elif char == "!":
+                core_entrance = (i, j)
 
-    return world, enemies, health_packs, weapon_pickups, player_spawn, rooms, doors, consoles
+    return world, enemies, health_packs, weapon_pickups, player_spawn, rooms, doors, consoles, core_entrance

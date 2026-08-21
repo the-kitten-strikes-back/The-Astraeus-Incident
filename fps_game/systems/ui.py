@@ -134,7 +134,7 @@ def draw_game_over(screen, font):
     screen.blit(go_surf, (WIDTH // 2 - go_surf.get_width() // 2, cy))
 
     cy += 56
-    sub_surf = body_font.render("Suit telemetry flat. Temporal anchor severed.", True, (180, 190, 210))
+    sub_surf = body_font.render("Suit telemetry flat. Quantum link severed.", True, (180, 190, 210))
     screen.blit(sub_surf, (WIDTH // 2 - sub_surf.get_width() // 2, cy))
 
     cy += 28
@@ -168,7 +168,7 @@ def draw_pause(screen, muted=False, volume=1.0):
     pause_surf.set_alpha(a)
     screen.blit(pause_surf, (WIDTH // 2 - pause_surf.get_width() // 2, HEIGHT // 2 - 30))
 
-    note = sub_font.render("Time continues outside this vessel. Proceed when ready.", True, (90, 120, 160))
+    note = sub_font.render("The entity waits. Time is running out. Proceed when ready.", True, (90, 120, 160))
     screen.blit(note, (WIDTH // 2 - note.get_width() // 2, HEIGHT // 2 + 20))
 
     esc_surf = sub_font.render("[ ESC ]  RESUME", True, (100, 140, 180))

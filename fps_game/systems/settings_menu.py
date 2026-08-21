@@ -34,6 +34,6 @@ def draw_settings(screen, settings):
     screen.blit(back_surf, (WIDTH // 2 - back_surf.get_width() // 2, HEIGHT // 3 + 80))
 
     note_surf = tiny_font.render(
-        "Higher sensitivity recommended in temporal fracture zones.", True, (70, 100, 140)
+        "Higher sensitivity recommended near the quantum core.", True, (70, 100, 140)
     )
     screen.blit(note_surf, (WIDTH // 2 - note_surf.get_width() // 2, HEIGHT // 3 + 120))

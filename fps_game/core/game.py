@@ -95,6 +95,9 @@ from systems.dogfight import (
     draw_consoles,
     draw_console_prompt,
 )
+from systems.quantum_puzzles import QuantumPuzzleSystem
+from systems.entity_boss import EntityBossFight
+from systems.ship_chaos import ShipChaosSystem
 from systems import audio
 
 class Game:
@@ -165,6 +168,11 @@ class Game:
         self.dogfight = ConsoleDogfight()
         self.consoles = []
 
+        self.quantum_puzzles = QuantumPuzzleSystem()
+        self.entity_boss = EntityBossFight()
+        self.ship_chaos = ShipChaosSystem()
+        self.core_entrance_tile = None
+
         self.level_paths = sorted(
             glob.glob(f"{LEVELS_DIR}/level*.txt"),
             key=lambda path: int(
@@ -231,7 +239,7 @@ class Game:
         self.cutscene_return_state = "playing"
         self.opening_cutscene_time = 0.0
         self.opening_cutscene_started = False
-        self.opening_cutscene_duration = 72.0
+        self.opening_cutscene_duration = 183.0
         self._opening_audio_manual = False
         self._opening_audio_started_at = 0.0
         self._opening_audio_stage = "idle"
@@ -267,12 +275,12 @@ class Game:
         self.story_beats = [
             {
                 "level": 0,
-                "title": "ASTRAEUS // EMERGENCY DOCKING",
+                "title": "ASTRAEUS // EMERGENCY ACTIVATION",
                 "lines": [
-                    "Deep-space research vessel Astraeus. Silent for six days.",
-                    "Last transmission: experiment failure near the black hole.",
+                    "Humanity's last deep-space vessel. Silent for six days.",
+                    "Last transmission: proximity alert near the galactic core.",
                     "Your orders: reach the reactor core. Find out what happened.",
-                    "The ship is still running. The crew is not responding.",
+                    "The ship is still running. The crew is gone.",
                 ],
                 "animation": {
                     "scene": "arrival",
@@ -283,7 +291,7 @@ class Game:
             },
             {
                 "level": 2,
-                "title": "ACT I — THE SILENT SHIP",
+                "title": "ACT I — THE DEAD SHIP",
                 "lines": [
                     "The corridors are intact. No bodies. No distress signals.",
                     "Doors open a half-second before you reach them.",
@@ -299,10 +307,10 @@ class Game:
             },
             {
                 "level": 4,
-                "title": "CREW LOG // DAY 3 — DR. YUEN",
+                "title": "CREW LOG // FINAL ENTRY — DR. YUEN",
                 "lines": [
-                    "The gravitational lens is working. We're harvesting dilation.",
-                    "Time near the core runs at 0.4 relative. We didn't predict that.",
+                    "The quantum core is resonating. We didn't account for this.",
+                    "Time near the reactor runs at 0.4 relative. The entity feeds on it.",
                     "Mira keeps saying she sees herself in the observation bay.",
                     "I told her it's a reflection. I'm not sure I believe that anymore.",
                 ],
@@ -315,12 +323,12 @@ class Game:
             },
             {
                 "level": 6,
-                "title": "ASTRAEUS // TEMPORAL SHEAR EVENT",
+                "title": "ASTRAEUS // QUANTUM SHEAR EVENT",
                 "lines": [
                     "Your suit registers a reality coherence drop of 61 percent.",
-                    "The enemies you're fighting — they're not drones.",
-                    "They're crew members. Stuck in loops between instants.",
-                    "Repeating their last actions. Unaware they're already gone.",
+                    "The enemies you're fighting — they're not crew.",
+                    "They're temporal anomalies. Echoes of a civilization that died here first.",
+                    "They don't know they're gone. They just keep attacking.",
                 ],
                 "animation": {
                     "scene": "crew_echo",
@@ -336,7 +344,7 @@ class Game:
                     "The ship no longer exists in one moment.",
                     "Every corridor you walk contains echoes of every decision made here.",
                     "You are passing through overlapping versions of the same place.",
-                    "The experiment didn't tap into time. It shattered it.",
+                    "The entity didn't break the ship. It broke time itself.",
                 ],
                 "animation": {
                     "scene": "fracture",
@@ -363,11 +371,11 @@ class Game:
             },
             {
                 "level": 13,
-                "title": "ACT III — THE WATCHER",
+                "title": "ACT III — THE ENTITY",
                 "lines": [
                     "It has no name. No body. No intention in any human sense.",
                     "But it is aware of you. It has watched every version of this moment.",
-                    "It altered the crew's behavior. It is altering yours.",
+                    "It altered the crew. It is altering you.",
                     "Every time you slow time or rewind — it learns from that too.",
                 ],
                 "animation": {
@@ -381,7 +389,7 @@ class Game:
                 "level": 15,
                 "title": "ACT IV — WHAT YOU ARE",
                 "lines": [
-                    "You were sent here because you survived a temporal anomaly six years ago.",
+                    "You were sent here because you survived a quantum anomaly six years ago.",
                     "You don't age the same way. Your perception of time was already altered.",
                     "The entity isn't attacking you. It's been trying to communicate.",
                     "You are the only thread that runs through every version of this ship.",
@@ -399,8 +407,8 @@ class Game:
                 "lines": [
                     "Reality collapses as you descend. Past and future are the same here.",
                     "You see yourself entering this ship. You see yourself never leaving.",
-                    "You see the crew — alive — in the moment before the fracture.",
-                    "The entity is waiting at the core. It already knows your choice.",
+                    "You see the crew — alive — in the moment before the entity arrived.",
+                    "It is waiting at the core. It already knows your choice.",
                 ],
                 "animation": {
                     "scene": "all_timelines",
@@ -413,8 +421,8 @@ class Game:
         self.log_beats = {
             2:  "SUIT LOG: No life signs. Ship power at 94%. Something is maintaining it.",
             4:  "CREW LOG [MIRA]: The observation bay shows me standing there. I am not standing there.",
-            6:  "SUIT LOG: Hostiles confirmed as crew biometrics. They are not aware of you.",
-            8:  "DR. YUEN LOG: The lens collapsed inward. We didn't account for recursive dilation.",
+            6:  "SUIT LOG: Hostiles confirmed — not crew. They are temporal echoes of a dead alien race.",
+            8:  "DR. YUEN LOG: The quantum core destabilized. The entity fed on the ship's time.",
             10: "SUIT LOG: Your temporal perception index is rising. This is not normal.",
             12: "UNKNOWN LOG: It watches through the gaps between seconds. Do not use your abilities near the core.",
             14: "SUIT LOG: The entity has modeled 4,219 versions of this mission. You have survived 3.",
@@ -657,7 +665,7 @@ class Game:
 
     def load_current_level(self, play_music=True):
         (self.world, self.enemies, self.health_packs, self.weapon_pickups, spawn,
-         self.rooms, self.doors, self.consoles) = load_level(
+         self.rooms, self.doors, self.consoles, self.core_entrance_tile) = load_level(
             self.level_paths[self.current_level_index]
         )
         self.enemy_bullets = []
@@ -903,6 +911,41 @@ class Game:
             pass
         pygame.event.set_grab(False)
         pygame.mouse.set_visible(True)
+        self.save_game()
+
+    def _start_chaos_phase(self):
+        self.level_complete_time = None
+        core_tile = self.core_entrance_tile
+        if core_tile is None:
+            core_tile = (47, 35)
+        self.ship_chaos.start(self.world, self.doors, self.player, core_tile)
+        self.state = "entity_chaos"
+        self.glitch_messages.append(
+            {"text": "THE ENTITY: YOU WILL NOT REACH THE CORE", "timer": 90}
+        )
+        self.glitch_messages.append(
+            {"text": "THE SHIP TURNS AGAINST YOU", "timer": 70}
+        )
+        self.save_game()
+
+    def _enter_quantum_puzzles(self):
+        self.quantum_puzzles.start()
+        self.state = "quantum_puzzles"
+        pygame.event.set_grab(False)
+        pygame.mouse.set_visible(True)
+        self.glitch_messages.append(
+            {"text": "QUANTUM SUPERCOMPUTER DETECTED // SECURITY LOCKDOWN", "timer": 80}
+        )
+
+    def _enter_entity_bossfight(self):
+        self.entity_boss.start()
+        self.state = "entity_bossfight"
+        pygame.event.set_grab(True)
+        pygame.mouse.set_visible(False)
+        self.player.owned_weapons = {"Pistol"}
+        self.player.temp_weapons.clear()
+        self.player.current_weapon_index = 0
+        self.player.refresh_owned_ammo()
         self.save_game()
 
     def _continue_from_reward(self):
@@ -1414,6 +1457,16 @@ class Game:
                     if event.key == pygame.K_RETURN:
                         self.state = self.cutscene_return_state
 
+                elif self.state == "entity_chaos":
+                    if event.key == pygame.K_ESCAPE:
+                        self.state = "pause"
+
+                elif self.state == "quantum_puzzles":
+                    self.quantum_puzzles.handle_event(event)
+
+                elif self.state == "entity_bossfight":
+                    self.entity_boss.handle_event(event)
+
                 elif self.state == "ending_choice":
                     if event.key == pygame.K_1:
                         self.ending_choice         = "containment"
@@ -1436,7 +1489,7 @@ class Game:
                         self._continue_from_reward()
 
             if event.type == pygame.MOUSEMOTION:
-                if self.state == "playing" and not self.game_over:
+                if self.state in ("playing", "entity_chaos") and not self.game_over:
                     self.mouse_dx += event.rel[0]
 
                     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -1453,11 +1506,11 @@ class Game:
                         pygame.mouse.set_pos(wrapped_x, wrapped_y)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if self.state == "playing" and not self.game_over:
+                if self.state in ("playing", "entity_chaos") and not self.game_over:
                     if self.player.get_weapon().name != "Machine Gun":
                         self._process_player_shot()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                if self.state == "playing" and not self.game_over:
+                if self.state in ("playing", "entity_chaos") and not self.game_over:
                     if self.player.get_weapon().name == "Sniper":
                         self.sniper_scoped = True
             if event.type == pygame.MOUSEBUTTONUP and event.button == 3:
@@ -1526,7 +1579,7 @@ class Game:
         if self.state == "opening_cutscene":
             self._start_opening_cutscene_audio()
             self._update_opening_cutscene_audio()
-            self.opening_cutscene_time += 0.06
+            self.opening_cutscene_time += 0.04
             if self.opening_cutscene_time >= self.opening_cutscene_duration:
                 self._finish_opening_cutscene()
             return
@@ -1569,11 +1622,77 @@ class Game:
                 self.state = "playing"
             return
 
+        if self.state == "entity_chaos":
+            self.ship_chaos.update()
+
+            if not self.game_over:
+                keys = pygame.key.get_pressed()
+                mx = self.mouse_dx
+                self.mouse_dx = 0
+                self.last_mouse_dx = mx
+
+                self.player.mouse_sensitivity = self.settings["sensitivity"]
+                self.player.move(self.world, mx, self.doors, speed_scale=1.0)
+
+                self.weapon_system.update_reload(self.player)
+
+                mouse_buttons = pygame.mouse.get_pressed()
+                if mouse_buttons[0] and self.player.get_weapon().name == "Machine Gun":
+                    self._process_player_shot()
+
+                new_bullets = update_enemies(
+                    self.enemies, self.player, self.world, self.doors,
+                    self.on_player_hit, 1.0,
+                )
+                self.enemy_bullets.extend(new_bullets)
+                self._update_enemy_bullets(1.0)
+
+                enemies_dead = (not self.enemies) or all(not e["alive"] for e in self.enemies)
+
+            self._finish_frame_counters()
+
+            if self.ship_chaos.completed or self.ship_chaos._player_reached_core():
+                self.ship_chaos.stop()
+                self._enter_quantum_puzzles()
+            elif self.player.health <= 0:
+                self.player.health = self.player.max_health
+                self.ship_chaos.stop()
+                self.state = "playing"
+                self.game_over = False
+                self.glitch_messages.append(
+                    {"text": "HULL BREACH REPAIRED // RESUME MISSION", "timer": 60}
+                )
+            return
+
+        if self.state == "quantum_puzzles":
+            self.quantum_puzzles.update()
+            if self.quantum_puzzles.is_complete():
+                self._enter_entity_bossfight()
+            for msg in self.glitch_messages[:]:
+                msg["timer"] -= 1
+                if msg["timer"] <= 0:
+                    self.glitch_messages.remove(msg)
+            return
+
+        if self.state == "entity_bossfight":
+            dt = 1.0 / FPS
+            self.entity_boss.update(dt)
+            if self.entity_boss.victory:
+                self.state = "ending_choice"
+                self.cutscene_time = 0.0
+                self.save_game()
+            elif self.entity_boss.retry_failed:
+                self.state = "entity_chaos"
+                self.ship_chaos.start(self.world, self.doors, self.player,
+                                       self.core_entrance_tile or (47, 35))
+                self.entity_boss.retry_failed = False
+            return
+
         if self.state == "level_reward":
             self._update_level_reward()
             return
 
-        if self.state not in {"playing", "loop"}:
+        if self.state not in {"playing", "loop", "entity_chaos"}:
             if self.state == "cutscene":
                 self.cutscene_time += 0.06
             elif self.state == "boss_cinematic":
@@ -1688,9 +1807,9 @@ class Game:
                     self.anomaly_scale = random.uniform(0.4, 1.6)
                     msg = random.choice([
                         "SUIT: REALITY COHERENCE DROPPING",
-                        "ASTRAEUS: TEMPORAL SHEAR ACTIVE",
-                        "CREW ECHO DETECTED IN SECTOR",
-                        "WARNING: RECURSIVE DILATION EVENT",
+                        "ASTRAEUS: QUANTUM SHEAR ACTIVE",
+                        "TEMPORAL ANOMALY DETECTED IN SECTOR",
+                        "WARNING: ENTITY FEEDING ON SHIP TIME",
                         "ENTITY SIGNAL: WE SEE YOU",
                         "SUIT: TIMELINE FORK — UNDEFINED",
                         "DR. YUEN LOG: IT KNOWS WE'RE HERE",
@@ -1755,10 +1874,16 @@ class Game:
                 level_cleared = enemies_dead
 
             if level_cleared and self.state == "playing":
-                if self.level_complete_time is None:
-                    self.level_complete_time = time.time()
-                elif time.time() - self.level_complete_time >= self.level_advance_delay:
-                    self._begin_level_reward()
+                if self.current_level_index == 19:
+                    if self.level_complete_time is None:
+                        self.level_complete_time = time.time()
+                    elif time.time() - self.level_complete_time >= self.level_advance_delay:
+                        self._start_chaos_phase()
+                else:
+                    if self.level_complete_time is None:
+                        self.level_complete_time = time.time()
+                    elif time.time() - self.level_complete_time >= self.level_advance_delay:
+                        self._begin_level_reward()
             else:
                 self.level_complete_time = None
 
@@ -2000,13 +2125,13 @@ class Game:
                     "glitch_intensity": 0.12,
                 }
                 draw_cutscene(
-                    self.screen, "ENDING — CONTAINMENT",
+                    self.screen, "ENDING — ANNIHILATION",
                     [
-                        "You destroy the core. The fracture collapses inward.",
-                        "The timelines converge. The Astraeus returns to a single moment.",
-                        "The entity dissolves — every version of it, simultaneously.",
-                        "The crew is gone. All versions of them, erased with it.",
-                        "You drift in silence. The black hole holds no memory of any of this.",
+                        "You overload the quantum core. The entity screams in every frequency.",
+                        "The black hole collapses inward. The ship folds with it.",
+                        "The temporal anomalies dissolve. The timelines converge to nothing.",
+                        "Earth never receives your signal. No one ever knows what happened here.",
+                        "The Astraeus, the entity, the black hole — all evidence, erased.",
                     ],
                     self.cutscene_time, animation_config=ending_animation,
                 )
@@ -2017,13 +2142,13 @@ class Game:
                     "glitch_intensity": 0.55,
                 }
                 draw_cutscene(
-                    self.screen, "ENDING — ASCENSION",
+                    self.screen, "ENDING — HARNESS",
                     [
-                        "You step into the core. The boundary between you and it dissolves.",
-                        "You are no longer perceiving time. You are experiencing all of it.",
-                        "Every corridor you ever walked. Every choice. Every version of yourself.",
-                        "You understand now what the crew became. You understand you chose this.",
-                        "There is no past. No future. Only the Astraeus, forever, watching.",
+                        "You step into the core. The boundary between you and the entity dissolves.",
+                        "Time itself bends to your will. Every second becomes energy.",
+                        "The Astraeus turns its reactor toward Earth. The black hole feeds the ship.",
+                        "You send the signal home. Humanity will have power again.",
+                        "But you are no longer human. You are time. And time is on your side.",
                     ],
                     self.cutscene_time, animation_config=ending_animation,
                 )
@@ -2045,13 +2170,13 @@ class Game:
                 "glitch_intensity": 0.48,
             }
             draw_cutscene(
-                self.screen, "THE WATCHER SPEAKS",
+                self.screen, "THE ENTITY SPEAKS",
                 [
                     "You have arrived at every version of this moment.",
-                    "Destroy the core — erase the fracture, and everything within it.",
-                    "The crew. Every echo. Every timeline. Erased completely.",
-                    "Or merge with us. Become part of what observes all time at once.",
-                    "Press 1 to CONTAIN.     Press 2 to ASCEND.",
+                    "Destroy the core — annihilate the entity, the ship, and the black hole.",
+                    "Everything dies. Earth. The crew. All evidence. Gone forever.",
+                    "Or harness us. Bend time into energy. Send it home. Let humanity live.",
+                    "Press 1 to ANNIHILATE.     Press 2 to HARNESS.",
                 ],
                 self.cutscene_time, prompt="This decision cannot be rewound.",
                 animation_config=choice_animation,
@@ -2125,6 +2250,15 @@ class Game:
 
         elif self.state == "level_reward":
             draw_level_reward(self.screen, self.reward, self.score, self.kills)
+
+        elif self.state == "entity_chaos":
+            self._render_chaos_phase()
+
+        elif self.state == "quantum_puzzles":
+            self.quantum_puzzles.draw(self.screen)
+
+        elif self.state == "entity_bossfight":
+            self.entity_boss.draw(self.screen)
 
         else:
             scene = pygame.Surface((WIDTH, HEIGHT))
@@ -2355,3 +2489,69 @@ class Game:
         pygame.event.set_grab(False)
         pygame.mouse.set_visible(True)
         pygame.quit()
+
+    def _render_chaos_phase(self):
+        scene = pygame.Surface((WIDTH, HEIGHT))
+        scene.fill((6, 8, 14))
+        scene.blit(self.ceiling_big, (0, 0))
+        scene.fill((2, 33, 41), pygame.Rect(0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
+        self.depth_buffer = raycast(
+            self.world, self.player, scene,
+            self.wall_textures, self.doors, self.door_texture,
+        )
+        self.draw_enemies(scene)
+        self._draw_enemy_bullets(scene)
+        draw_health_packs(scene, self.health_packs, self.player, self.depth_buffer, self.anim_time)
+        draw_weapon_pickups(
+            scene, self.weapon_pickups, self.player, self.depth_buffer,
+            self.anim_time, self.weapon_system.images, self.hud_font,
+        )
+        self.weapon_system.draw_weapon(
+            scene, self.player,
+            bob_y=self.bob_offset, sway_x=self.bob_side, sway_y=self.bob_offset * 0.3,
+        )
+        zoom = 1.0 + self.screen_zoom
+        target_w = max(1, int(WIDTH * zoom))
+        target_h = max(1, int(HEIGHT * zoom))
+        scaled = pygame.transform.smoothscale(scene, (target_w, target_h))
+        shake_x = shake_y = 0
+        if self.shake > 0:
+            shake_x = int((self.shake * 0.6) * (1 if int(time.time() * 1000) % 2 == 0 else -1))
+            shake_y = int((self.shake * 0.6) * (-1 if int(time.time() * 1000) % 3 == 0 else 1))
+        base_x = (WIDTH - scaled.get_width()) // 2 + shake_x
+        base_y = (HEIGHT - scaled.get_height()) // 2 + shake_y + int(self.bob_offset)
+        self.screen.fill((0, 0, 0))
+        self.screen.blit(scaled, (base_x, base_y))
+        if self.interior_grade:
+            self.screen.blit(self.interior_grade, (0, 0))
+        if self.interior_vignette:
+            self.screen.blit(self.interior_vignette, (0, 0))
+        self.ship_chaos.draw_overlay(self.screen, self.ui_phase)
+        minimap_alpha = 130 + math.sin(self.ui_phase) * 25
+        draw_minimap(
+            self.screen, self.world, self.player, self.enemies,
+            self.health_packs, minimap_alpha, self.rooms, ROOM_COLOR_MAP,
+            self.doors,
+        )
+        draw_crosshair(self.screen, False, 0.0)
+        draw_level_hud(self.screen, self.hud_font, self.current_level_index, self.player)
+        draw_ammo(self.screen, self.hud_font, self.player)
+        draw_overlay_messages(
+            self.screen, self.glitch_messages, flicker=abs(math.sin(self.ui_phase))
+        )
+        draw_temporal_hud(
+            self.screen,
+            self.time_dilation,
+            self.time_rewind,
+            self.temporal_echo,
+            self.fracture_zones,
+            self.ui_phase,
+        )
+        if self.hit_flash > 0:
+            draw_hit_flash(self.screen)
+        if self.game_over:
+            draw_game_over(self.screen, self.hud_font)
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_r] and self.restart_cooldown <= 0:
+                self.ship_chaos.stop()
+                self.reset_game()

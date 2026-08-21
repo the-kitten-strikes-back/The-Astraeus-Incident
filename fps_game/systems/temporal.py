@@ -466,19 +466,19 @@ class TemporalEcho:
 FRACTURE_ROOM_EFFECTS = {
     "R": {"type": "slow",     "world_scale": 0.35, "player_scale": 0.60,
           "tint": (255, 80,  80),  "alpha": 55, "scan": True,
-          "msg": "REACTOR // TEMPORAL DRAG FIELD"},
+          "msg": "REACTOR // ENTITY TEMPORAL DRAG"},
     "L": {"type": "fast",     "world_scale": 2.20, "player_scale": 1.15,
           "tint": (80,  255, 160), "alpha": 40, "scan": False,
-          "msg": "LAB // ACCELERATED CHRONOLOGY"},
+          "msg": "LAB // ENTITY-ACCELERATED TIME"},
     "H": {"type": "reverse",  "world_scale": -0.8, "player_scale": 0.90,
           "tint": (200, 80,  255), "alpha": 60, "scan": True,
-          "msg": "HANGAR // CHRONO-INVERSION ZONE"},
+          "msg": "HANGAR // QUANTUM CHRONO-INVERSION"},
     "Y": {"type": "mirror",   "world_scale": 0.70, "player_scale": -0.85,
           "tint": (80,  180, 255), "alpha": 50, "scan": False,
-          "msg": "CRYO BAY // MIRROR TIME FLUX"},
+          "msg": "CRYO BAY // QUANTUM MIRROR FLUX"},
     "O": {"type": "nullgrav",  "world_scale": 0.55, "player_scale": 0.55,
           "tint": (200, 200, 80),  "alpha": 45, "scan": False,
-          "msg": "OBSERVATION // NULL-GRAVITY SHEAR"},
+          "msg": "OBSERVATION // ENTITY NULL-GRAVITY SHEAR"},
 }
 
 class FractureZones:

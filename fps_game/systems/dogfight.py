@@ -430,10 +430,10 @@ class ConsoleDogfight:
 
         if self.end_state == "victory":
             self._draw_end_banner(screen, "TEMPORAL FRACTURE DESTROYED",
-                                  "THE ASTRAEUS WAS FIGHTING ITSELF")
+                                  "THE ENTITY'S ANOMALY HAS BEEN NEUTRALIZED")
         elif self.end_state == "defeat":
             self._draw_end_banner(screen, "CONNECTION LOST",
-                                  "FRACTURE REPOSITIONED — REACCESS THE CONSOLE")
+                                  "QUANTUM LINK SEVERED — REACCESS THE CONSOLE")
 
     def _draw_star_tunnel(self, screen):
         cx, cy = WIDTH / 2, HEIGHT / 2
@@ -477,7 +477,7 @@ class ConsoleDogfight:
             screen.blit(flash, (0, 0))
 
         label_font = pygame.font.SysFont("courier", 15, bold=True)
-        lbl = label_font.render("TEMPORAL FRACTURE // ASTRAEUS-β", True, (255, 120, 190))
+        lbl = label_font.render("TEMPORAL ANOMALY // DEAD ALIEN ECHO", True, (255, 120, 190))
         screen.blit(lbl, (int(pos[0]) - lbl.get_width() // 2, int(pos[1]) - int(h * 0.55) - 8))
 
     def _draw_weapon_flash(self, screen):
@@ -525,7 +525,7 @@ class ConsoleDogfight:
         eratio = max(0, self.enemy_hp) / self.ENEMY_HP
         pygame.draw.rect(screen, (255, 70, 150), (ex, ey, int(bar_w * eratio), bar_h))
         pygame.draw.rect(screen, (255, 140, 200), (ex, ey, bar_w, bar_h), 1)
-        e_lbl = font.render("TEMPORAL FRACTURE", True, (255, 130, 190))
+        e_lbl = font.render("TEMPORAL ANOMALY", True, (255, 130, 190))
         screen.blit(e_lbl, e_lbl.get_rect(center=(WIDTH // 2, 12)))
 
         # ── player hull bar (dashboard) ────────────────────────────────────
@@ -559,7 +559,7 @@ class ConsoleDogfight:
             line = font.render("LINK ACQUIRED — YOU ARE ASTRAEUS", True, (170, 230, 255))
             screen.blit(line, (WIDTH // 2 - line.get_width() // 2, int(HEIGHT * 0.62)))
         if 1.6 < t < 4.8:
-            line = font.render("CONTACT: ASTRAEUS TEMPORAL FRACTURE", True, (255, 130, 190))
+            line = font.render("CONTACT: TEMPORAL ANOMALY DETECTED", True, (255, 130, 190))
             screen.blit(line, (WIDTH // 2 - line.get_width() // 2, int(HEIGHT * 0.62) + 40))
         if 3.2 < t < 6.4:
             line = sub.render("IT IS ATTACKING YOU.", True, (255, 190, 160))

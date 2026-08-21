@@ -24,7 +24,7 @@ def draw_menu(screen):
     screen.blit(glow_surf, (tx + 3, ty + 3))
     screen.blit(title_surf, (tx, ty))
 
-    sub_surf = sub_font.render("DEEP-SPACE TEMPORAL RESEARCH VESSEL", True, (100, 140, 190))
+    sub_surf = sub_font.render("LAST HOPE FOR EARTH — ENERGY CRISIS 2144", True, (100, 140, 190))
     screen.blit(sub_surf, (WIDTH // 2 - sub_surf.get_width() // 2, ty + 64))
 
     pygame.draw.line(screen, (50, 80, 130),
@@ -33,8 +33,8 @@ def draw_menu(screen):
     status_lines = [
         "VESSEL STATUS: ACTIVE",
         "CREW STATUS: UNRESPONSIVE",
-        "TEMPORAL COHERENCE: 38%",
-        "CORE TEMPERATURE: CRITICAL",
+        "QUANTUM CORE: UNSTABLE",
+        "ENTITY PRESENCE: DETECTED",
     ]
     sy = ty + 106
     for i, line in enumerate(status_lines):
@@ -49,7 +49,7 @@ def draw_menu(screen):
                      (WIDTH // 2 - 280, sy + 100), (WIDTH // 2 + 280, sy + 100), 1)
 
     enter_a = int(160 + 95 * pulse)
-    enter_surf = sub_font.render("[ ENTER ]  COMMENCE BOARDING SEQUENCE", True, (180, 200, 240))
+    enter_surf = sub_font.render("[ ENTER ]  BEGIN EMERGENCY WAKE-UP", True, (180, 200, 240))
     enter_surf.set_alpha(enter_a)
     screen.blit(enter_surf, (WIDTH // 2 - enter_surf.get_width() // 2, sy + 116))
 
@@ -73,7 +73,7 @@ def draw_menu(screen):
 
     warning_a = int(100 + 60 * math.sin(t * 3.4))
     warning = tiny_font.render(
-        "WARNING: TEMPORAL ANOMALY DETECTED IN SECTORS 4, 7, 11  —  PROCEED WITH CAUTION",
+        "WARNING: ENTITY SIGNAL DETECTED IN QUANTUM CORE  —  PROCEED WITH CAUTION",
         True, (180, 60, 60)
     )
     warning.set_alpha(warning_a)
