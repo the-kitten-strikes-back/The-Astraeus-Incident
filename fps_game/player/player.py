@@ -2,9 +2,10 @@ import math
 
 import pygame
 
-from core.settings import TILE, WEAPON_SPECS, WEAPON_ORDER
+from core.settings import EFFECT_FILES, TILE, WEAPON_SPECS, WEAPON_ORDER
 from utils.math_utils import is_wall
 from player.weapon import Weapon
+from systems import audio
 
 
 class Player:
@@ -79,8 +80,11 @@ class Player:
 
     def select_weapon(self, name):
         available = self.available_weapons()
+        current = self.get_weapon().name
         for i, weapon in enumerate(available):
             if weapon.name == name:
+                if weapon.name != current:
+                    audio.play_sound(EFFECT_FILES.get("weapon_switch", ""))
                 self.current_weapon_index = i
                 return True
         return False

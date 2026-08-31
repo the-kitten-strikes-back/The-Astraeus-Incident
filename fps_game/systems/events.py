@@ -3,8 +3,9 @@ import random
 
 import pygame
 
-from core.settings import WIDTH, HEIGHT, TILE
+from core.settings import EFFECT_FILES, WIDTH, HEIGHT, TILE
 from utils.math_utils import is_wall
+from systems import audio
 
 
 
@@ -62,6 +63,7 @@ class GravityTilt:
                 if self._delay <= 0:
                     self.phase = self.WARNING
                     self.phase_timer = self.WARNING_TIME
+                    audio.play_sound(EFFECT_FILES["gravity_tilt_warn"], base=0.9)
                     self._spawn_debris(40)
             return
 

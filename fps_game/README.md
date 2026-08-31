@@ -8,11 +8,11 @@ Humanity's final chance is The Astraeus — the last interstellar vessel, powere
 
 But something is already there.
 
-Trapped within the black hole, an entity — not biological, not mechanical, but quantum — finds a way into the ship through entanglement. It takes control of the quantum core. The crew vanishes.
+Trapped within the black hole, an entity — not biological, not mechanical, but quantum — finds a way into the ship's quantum computer through entanglement. It takes control of the quantum core. The crew vanishes.
 
 You awaken from emergency hibernation. The ship is running. The crew is gone. Something in the core is keeping it alive.
 
-Through quantum entanglement with the entity, you gain the ability to slow, rewind, and bend time. But the entity is learning from every use. Temporal anomalies — echoes of a long-dead alien race — haunt every corridor.
+Through entanglement with the entity, you gain the ability to slow, rewind, and bend time. But the entity is learning from every use. Temporal anomalies — echoes of a long-dead alien race — haunt every corridor.
 
 Reach the core. Discover what the entity wants. And end it — before it takes everything.
 

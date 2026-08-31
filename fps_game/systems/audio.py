@@ -1,4 +1,5 @@
 import array
+import os
 import time
 
 import pygame
@@ -21,7 +22,7 @@ _freeze_path = None
 _freeze_len = 1.0
 _freeze_rate = 1.0
 
-_RESERVED_LOOP_KEYS = ["dilation", "echo", "rewind", "freeze"]
+_RESERVED_LOOP_KEYS = ["dilation", "echo", "rewind", "freeze", "mg"]
 
 
 def _effective(base):
@@ -47,11 +48,38 @@ def play_sound(path, base=1.0):
         return
     if not pygame.mixer.get_init():
         return
+    if not path or not os.path.exists(path):
+        return
     try:
         sound = pygame.mixer.Sound(path)
         if _rate != 1.0:
             sound = _resampled_sound(path, sound, _rate)
         sound.set_volume(_effective(base))
+        sound.play()
+    except pygame.error:
+        pass
+
+
+def play_sfx_slowed(path, rate=0.6, volume=1.0):
+    """One-shot SFX resampled slower (rate < 1) for dread whooshes/rumbles."""
+    if _muted or _master <= 0:
+        return
+    if not pygame.mixer.get_init():
+        return
+    try:
+        key = ("slow", path, round(rate, 2))
+        sound = _resample_cache.get(key)
+        if sound is None:
+            base_sound = pygame.mixer.Sound(path)
+            slowed = _resample_bytes(base_sound.get_raw(), rate) if rate < 1.0 else None
+            try:
+                sound = pygame.mixer.Sound(buffer=slowed) if slowed else base_sound
+            except (pygame.error, ValueError, TypeError):
+                sound = base_sound
+            _resample_cache[key] = sound
+            if len(_resample_cache) > 48:
+                _resample_cache.pop(next(iter(_resample_cache)))
+        sound.set_volume(_effective(volume))
         sound.play()
     except pygame.error:
         pass

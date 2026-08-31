@@ -112,6 +112,8 @@ class WeaponSystem:
                         enemy["death_timer"] = 0
                         if enemy.get("boss"):
                             enemy["killed_by_bullet"] = True
+                        else:
+                            audio.play_sound(EFFECT_FILES.get("enemy_death_normal", ""))
                         kills_delta += 1
 
         self.recoil_velocity = -8
@@ -141,6 +143,8 @@ class WeaponSystem:
                             enemy["alive"] = False
                             if enemy.get("boss"):
                                 enemy["killed_by_bullet"] = True
+                            else:
+                                audio.play_sound(EFFECT_FILES.get("enemy_death_normal", ""))
                         if bullet in self.bullets:
                             self.bullets.remove(bullet)
                         break

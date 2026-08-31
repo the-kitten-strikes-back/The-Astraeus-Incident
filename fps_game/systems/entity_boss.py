@@ -14,8 +14,19 @@ from core.settings import (
     ENTITY_ATTACKS_TO_DEFEAT,
     ALIEN_CYAN, ALIEN_RED, ALIEN_AMBER,
 )
+from systems.entity_form import EntityForm
+from systems.entity_fx import EntityTimeWarpFX
+from systems import audio
 
 CX, CY = WIDTH // 2, HEIGHT // 2
+
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+_PARTICLE_SURFS = {}
+_FLASH_SURF = None
 
 
 class EntityBossFight:
@@ -72,6 +83,11 @@ class EntityBossFight:
                 "size": random.randint(1, 3),
                 "alpha": random.randint(20, 80),
             })
+        self.form = EntityForm(seed=13)
+        self.fx = EntityTimeWarpFX()
+        self.entity_size = 240.0
+        self.eye_open = 0.0
+        self.boss_screen_pos = (CX, CY - 170)
 
     def start(self):
         self.active = True
@@ -86,6 +102,9 @@ class EntityBossFight:
         self.retry_failed = False
         self.intro_timer = 0.0
         self.words_used = set()
+        self.entity_size = 240.0
+        self.eye_open = 0.0
+        self.fx.intensity = 0.0
         self._build_enemy_silhouettes()
 
     def _build_enemy_silhouettes(self):
@@ -153,9 +172,22 @@ class EntityBossFight:
             "active": True,
             "hit": False,
         })
+        self.fx.spike(0.85, boss_pos=self.boss_screen_pos)
+        self.fx.trigger_cracks(1, origin=self.boss_screen_pos)
+        self._play_sfx_slowed("dilation", rate=0.5, volume=0.6)
         self.state = self.ATTACK
         self.phase_timer = 0.0
         self.typed_text = ""
+
+    def _play_sfx_slowed(self, key, rate=0.6, volume=1.0):
+        import os
+        from core.settings import EFFECT_FILES
+        path = EFFECT_FILES.get(key, "")
+        if path and os.path.exists(path):
+            try:
+                audio.play_sfx_slowed(path, rate=rate, volume=volume)
+            except Exception:
+                pass
 
     def handle_event(self, event):
         if not self.active:
@@ -198,6 +230,28 @@ class EntityBossFight:
             return
         self.dot_pulse += dt * 3.0
         self.phase_timer += dt
+
+        ambient = 0.0
+        if self.state == self.WINDUP:
+            grow = min(1.0, self.phase_timer / 1.2)
+            ambient = 0.12 + grow * 0.55
+            self.entity_size = 400.0 + grow * 95.0
+        elif self.state == self.ATTACK:
+            near = any(p["active"] and p["y"] > HEIGHT * 0.5 for p in self.projectiles)
+            ambient = 0.16 if near else 0.07
+            self.entity_size = 430.0 + int(10 * math.sin(self.dot_pulse * 2))
+        elif self.state == self.INTRO:
+            self.eye_open = _clamp((self.intro_timer - 0.9) / 2.2, 0.0, 1.0)
+            self.entity_size = 240.0 + min(1.0, self.intro_timer / 4.0) * 165.0
+            ambient = 0.06 * self.eye_open
+        elif self.state == self.DEATH:
+            self.death_drift = getattr(self, "death_drift", 0.0) + dt * 22.0
+            self.entity_size = max(60.0, self.entity_size - dt * 150.0)
+            self.eye_open = max(0.0, self.eye_open - dt * 0.9)
+        elif self.state == self.PAUSE:
+            self.entity_size = max(395.0, self.entity_size - dt * 60.0)
+        self.fx.update(dt, ambient=ambient)
+        self.fx.boss_screen_pos = self.boss_screen_pos
 
         for p in self.ambient_particles:
             p["x"] += p["vx"]
@@ -292,10 +346,16 @@ class EntityBossFight:
         self.screen_flash = 0.8
         self.glitch_timer = 0.5
         self.glitch_intensity = 1.0
+        self.fx.trigger_cracks(2)
+        self.fx.spike(0.9)
         if self.health <= 0:
             self.health = 0
             self.state = self.DEATH
             self.death_timer = 0.0
+            self.death_drift = 0.0
+            self.fx.spike(1.8)
+            self.fx.trigger_cracks(4)
+            self._play_sfx_slowed("death", rate=0.45, volume=0.9)
             self.taunt_text = random.choice(ENTITY_TAUNTS)
             self.taunt_timer = 3.0
 
@@ -323,10 +383,14 @@ class EntityBossFight:
         screen.fill((0, 0, 0))
 
         for p in self.ambient_particles:
-            surf = pygame.Surface((3, 3), pygame.SRCALPHA)
             a = int(p["alpha"] * (0.5 + 0.5 * math.sin(self.dot_pulse + p["x"] * 0.01)))
-            surf.fill((180, 30, 30, max(0, min(255, a))))
-            screen.blit(surf, (int(p["x"]), int(p["y"])))
+            key = _clamp(a, 0, 255) >> 3
+            ps = _PARTICLE_SURFS.get(key)
+            if ps is None:
+                ps = pygame.Surface((3, 3), pygame.SRCALPHA)
+                ps.fill((180, 30, 30, key << 3))
+                _PARTICLE_SURFS[key] = ps
+            screen.blit(ps, (int(p["x"]), int(p["y"])))
 
         if self.state == self.INTRO:
             self._draw_intro(screen)
@@ -337,10 +401,16 @@ class EntityBossFight:
         elif self.state == self.VICTORY:
             self._draw_victory(screen)
 
+        self.fx.apply(screen)
+
         if self.screen_flash > 0:
-            flash = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            flash.fill((*ALIEN_RED, int(120 * self.screen_flash)))
-            screen.blit(flash, (0, 0))
+            global _FLASH_SURF
+            if _FLASH_SURF is None:
+                fs = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                fs.fill((*ALIEN_RED, 255))
+                _FLASH_SURF = fs
+            _FLASH_SURF.set_alpha(_clamp(int(120 * self.screen_flash), 0, 255))
+            screen.blit(_FLASH_SURF, (0, 0))
 
         self._draw_entity_hp(screen)
 
@@ -352,14 +422,16 @@ class EntityBossFight:
             if show_at <= t < show_at + s["duration"]:
                 self._draw_enemy_silhouette(screen, s["type"], t)
 
-        dot_alpha = min(255, int(t * 80))
-        pulse_r = self.dot_radius + int(3 * math.sin(self.dot_pulse * 2))
-        glow_surf = pygame.Surface((pulse_r * 6, pulse_r * 6), pygame.SRCALPHA)
-        pygame.draw.circle(glow_surf, (255, 30, 30, dot_alpha // 3),
-                           (pulse_r * 3, pulse_r * 3), pulse_r * 3)
-        pygame.draw.circle(glow_surf, (255, 40, 40, dot_alpha),
-                           (pulse_r * 3, pulse_r * 3), pulse_r)
-        screen.blit(glow_surf, (CX - pulse_r * 3, CY - pulse_r * 3))
+        now = pygame.time.get_ticks() / 1000.0
+        alpha = min(1.0, t / 2.2)
+        size = self.entity_size
+        rendered = self.form.draw(
+            screen, CX, CY - 150, size, now,
+            angle=math.pi / 2 - 0.15, anger=0.15, hp_ratio=1.0,
+            moving=self.fx.intensity * 0.4, alpha_mult=alpha,
+            eye_open=self.eye_open, extra_eyes=0,
+        )
+        self.fx.apply_entity_split(screen, rendered, (CX, CY - 150))
 
         if t > 2.5:
             text_alpha = min(255, int((t - 2.5) * 200))
@@ -401,11 +473,34 @@ class EntityBossFight:
         screen.blit(surf, (glitch_x - size // 2, glitch_y - size // 2))
 
     def _draw_fight(self, screen):
-        pulse_r = self.dot_radius + int(4 * math.sin(self.dot_pulse * 2))
-        glow_surf = pygame.Surface((pulse_r * 6, pulse_r * 6), pygame.SRCALPHA)
-        pygame.draw.circle(glow_surf, (255, 20, 20, 30), (pulse_r * 3, pulse_r * 3), pulse_r * 3)
-        pygame.draw.circle(glow_surf, (255, 40, 40, 200), (pulse_r * 3, pulse_r * 3), pulse_r)
-        screen.blit(glow_surf, (CX - pulse_r * 3, CY - pulse_r * 3))
+        now = pygame.time.get_ticks() / 1000.0
+        ratio = max(0.0, self.health / self.max_health)
+        if self.state == self.WINDUP:
+            grow = min(1.0, self.phase_timer / 1.2)
+            lean = int(grow * 26)
+        elif self.state == self.ATTACK:
+            lean = int(6 * math.sin(self.dot_pulse * 1.4))
+        else:
+            lean = 0
+        cy = CY - 150 + lean
+        self.boss_screen_pos = (CX, cy)
+        anger = max(0.2, 1.0 - ratio)
+        if ratio <= 0.25:
+            extra_eyes = 4.5
+        elif ratio <= 0.45:
+            extra_eyes = 3.0
+        elif ratio <= 0.70:
+            extra_eyes = 1.5
+        else:
+            extra_eyes = 0.0
+        glance = math.pi / 2 - 0.18 + 0.08 * math.sin(self.dot_pulse)
+        rendered = self.form.draw(
+            screen, CX, cy, self.entity_size, now,
+            angle=glance, anger=anger, hp_ratio=ratio,
+            moving=min(1.0, self.fx.intensity * 0.6),
+            eye_open=1.0, extra_eyes=extra_eyes,
+        )
+        self.fx.apply_entity_split(screen, rendered, (CX, cy))
 
         if self.state == self.WINDUP:
             warning_alpha = int(150 + 105 * math.sin(self.dot_pulse * 8))
@@ -501,12 +596,20 @@ class EntityBossFight:
         screen.blit(hint, (CX - hint.get_width() // 2, HEIGHT - 120))
 
     def _draw_death(self, screen):
-        pulse = math.sin(self.death_timer * 3) * 0.5 + 0.5
-        r = int(80 * pulse + 20)
-        glow = pygame.Surface((r * 6, r * 6), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (255, 20, 20, 60), (r * 3, r * 3), r * 3)
-        pygame.draw.circle(glow, (255, 40, 40, 200), (r * 3, r * 3), r)
-        screen.blit(glow, (CX - r * 3, CY - r * 3))
+        t = self.death_timer
+        now = pygame.time.get_ticks() / 1000.0
+        fade = max(0.0, 1.0 - t / 2.6)
+        if fade > 0:
+            size = max(60.0, self.entity_size)
+            open_e = max(0.0, 1.0 - t / 1.1)
+            rendered = self.form.draw(
+                screen, CX, CY - 150 + int(t * 22), size, now,
+                angle=math.pi / 2, anger=1.0, hp_ratio=0.05,
+                moving=0.8, alpha_mult=fade, eye_open=open_e,
+                extra_eyes=max(0.0, 3.0 - t),
+            )
+            self.fx.apply_entity_split(screen, rendered,
+                                       (CX, CY - 150 + int(t * 22)))
 
         if self.death_timer > 1.0:
             font = pygame.font.SysFont("courier", 40, bold=True)
@@ -528,8 +631,17 @@ class EntityBossFight:
 
     def _draw_victory(self, screen):
         t = self.victory_timer
+        now = pygame.time.get_ticks() / 1000.0
+        fade = max(0.0, 1.0 - t / 2.2)
+        if fade > 0:
+            self.form.draw(
+                screen, CX, CY - 150, self.entity_size * (0.7 + 0.3 * fade), now,
+                angle=math.pi / 2 - 0.15, anger=0.0, hp_ratio=0.02,
+                moving=0.2 * fade, alpha_mult=fade,
+                eye_open=min(1.0, fade + 0.35), extra_eyes=0,
+            )
         r = max(1, int(80 * max(0, 1 - t / 3.0)))
-        if r > 0:
+        if t > 1.6 and r > 0:
             glow = pygame.Surface((r * 6, r * 6), pygame.SRCALPHA)
             pygame.draw.circle(glow, (255, 255, 255, max(0, int(100 * (1 - t / 3.0)))),
                                (r * 3, r * 3), r * 3)

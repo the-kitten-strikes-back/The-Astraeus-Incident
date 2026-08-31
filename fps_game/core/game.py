@@ -26,6 +26,7 @@ from core.settings import (
     WEAPON_PICKUP_RANGE,
     LEVEL_POINTS,
     get_music_for_level,
+    MUSIC_DIR,
     FREEZE_AUDIO_RATE,
     DELTA_ANGLE,
 )
@@ -103,6 +104,15 @@ from systems.entity_taunts import EntityTaunts
 from systems.final_boss import FinalBoss
 from systems import audio
 
+# Per-weapon one-shot fire sounds. Machine Gun is excluded: its looped
+# mg_fire track plays while the mouse button is held (_update_mg_audio).
+WEAPON_FIRE_KEYS = {
+    "Pistol": "gunshot",
+    "Shotgun": "shotgun_fire",
+    "Sniper": "sniper_fire",
+}
+
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -176,6 +186,7 @@ class Game:
         self.ship_chaos = ShipChaosSystem()
         self.entity_taunts = EntityTaunts()
         self.final_boss = FinalBoss()
+        self._fb_prev_state = None
         self.core_entrance_tile = None
 
         self.level_paths = sorted(
@@ -875,6 +886,7 @@ class Game:
         self.labyrinth_feedback_timer = 80
 
         if solved:
+            audio.play_sound(EFFECT_FILES["door_slide_open"])
             if self.labyrinth_target_door in self.doors:
                 self.doors[self.labyrinth_target_door]["open"] = True
             self.glitch_messages.append(
@@ -884,6 +896,7 @@ class Game:
             self._cancel_labyrinth()
             return
 
+        audio.play_sound(EFFECT_FILES["puzzle_fail"])
         if self.labyrinth_puzzle["attempts"] >= self.labyrinth_puzzle["max_attempts"]:
             self.glitch_messages.append(
                 {"text": "LABYRINTH: ADAPTIVE RETRAINING", "timer": 36}
@@ -968,6 +981,7 @@ class Game:
         self.player.current_weapon_index = 0
         self.player.refresh_owned_ammo()
         self.final_boss.start(self.world, self.doors, self.player)
+        self._fb_prev_state = None
         self.state = "final_boss"
         pygame.event.set_grab(True)
         pygame.mouse.set_visible(False)
@@ -1293,6 +1307,21 @@ class Game:
         self.state = "playing"
         self.opening_cutscene_time = self.opening_cutscene_duration
 
+    def _update_mg_audio(self):
+        """mg_fire.mp3 already contains repeated shots: loop it while held."""
+        weapon = self.player.get_weapon()
+        want = (
+            self.state in ("playing", "final_boss")
+            and not getattr(self.final_boss, "screen_freeze", False)
+            and pygame.mouse.get_pressed()[0]
+            and weapon.name == "Machine Gun"
+            and weapon.ammo > 0
+        )
+        if want:
+            audio.start_loop("mg", EFFECT_FILES["mg_fire"], base=0.85)
+        else:
+            audio.stop_loop("mg")
+
     def _process_player_shot(self):
         score_delta, kills_delta, hit_any, fired = self.weapon_system.try_shoot(
             time.time(), self.player, self.enemies, self.depth_buffer
@@ -1321,8 +1350,9 @@ class Game:
                     self.chromatic_timer = max(self.chromatic_timer, 4)
         if fired:
             try:
-                if os.path.exists(EFFECT_FILES["laser"]):
-                    audio.play_sound(EFFECT_FILES["laser"])
+                key = WEAPON_FIRE_KEYS.get(self.player.get_weapon().name)
+                if key and os.path.exists(EFFECT_FILES[key]):
+                    audio.play_sound(EFFECT_FILES[key])
             except (KeyError, pygame.error):
                 pass
             self.screen_zoom = max(self.screen_zoom, 0.03)
@@ -1631,6 +1661,7 @@ class Game:
             audio.stop_loop("rewind")
 
     def update(self):
+        self._update_mg_audio()
         if self.state == "opening_cutscene":
             self._start_opening_cutscene_audio()
             self._update_opening_cutscene_audio()
@@ -1650,6 +1681,7 @@ class Game:
             if self.labyrinth_feedback_timer > 0:
                 self.labyrinth_feedback_timer -= 1
             if self.labyrinth_engine.check_timeout(self.labyrinth_puzzle):
+                audio.play_sound(EFFECT_FILES["puzzle_fail"])
                 self.labyrinth_feedback = "TIMEOUT // ADAPTIVE SCORE REDUCED"
                 self.labyrinth_feedback_timer = 80
                 self.labyrinth_puzzle = self.labyrinth_engine.generate_puzzle()
@@ -1745,6 +1777,23 @@ class Game:
         if self.state == "final_boss":
             dt = 1.0 / FPS
             self.final_boss.update(dt, self.player, self.world, self.doors)
+            fb_state = self.final_boss.state
+            if self._fb_prev_state != fb_state:
+                if self._fb_prev_state == "setup" and fb_state == "phase_1":
+                    song = random.choice(["bossfight.mp3", "bossfight1.mp3", "bossfight2.mp3", "bossfight3.mp3"])
+                    pygame.mixer.music.load(
+                        os.path.join(MUSIC_DIR, "bossfight.mp3"))
+                    pygame.mixer.music.set_volume(audio.music_volume(0.72))
+                    pygame.mixer.music.play(-1)
+                elif fb_state == "death" and pygame.mixer.music.get_busy():
+                    pygame.mixer.music.stop()
+                self._fb_prev_state = fb_state
+            if self.final_boss.screen_shake > 0:
+                self.shake = max(self.shake, int(self.final_boss.screen_shake))
+            fb_warp = getattr(self.final_boss.fx, "intensity", 0.0)
+            if fb_warp > 0.8:
+                self.screen_zoom = max(
+                    self.screen_zoom, min(0.07, (fb_warp - 0.8) * 0.08))
             if not self.final_boss.screen_freeze:
                 keys = pygame.key.get_pressed()
                 mx = self.mouse_dx
@@ -2675,4 +2724,5 @@ class Game:
             self.screen.blit(self.interior_grade, (0, 0))
         draw_crosshair(self.screen, False, 0.0)
         self.final_boss.draw(self.screen, self.player, self.depth_buffer)
+        self.final_boss.fx.apply(self.screen)
         draw_ammo(self.screen, self.hud_font, self.player)

@@ -14,12 +14,22 @@ from core.settings import (
     FINAL_BOSS_GRAVITY_PULL, FINAL_BOSS_DASH_SPEED, FINAL_BOSS_DASH_DURATION,
     FINAL_BOSS_REWIND_CD, FINAL_BOSS_CLONE_HP, FINAL_BOSS_INTRO_DURATION,
     FINAL_BOSS_ARENA_RADIUS, FINAL_BOSS_PHASE_THRESHOLDS,
+    FINAL_BOSS_ENTITY_SCALE, FINAL_BOSS_ENTITY_MAX_SIZE,
+    ENTITY_TELEPORT_WINDUP, ENTITY_SCAR_LIFE,
+    ENTITY_WARP_TELEPORT_SPIKE, ENTITY_WARP_DASH_INTENSITY,
+    ENTITY_WARP_CHARGE_INTENSITY, ENTITY_WARP_FINAL_AMBIENT,
     EFFECT_FILES,
 )
 
 from systems import audio
+from systems.entity_form import EntityForm
+from systems.entity_fx import EntityTimeWarpFX
 
 CX, CY = WIDTH // 2, HEIGHT // 2
+
+
+def _clamp01(v):
+    return max(0.0, min(1.0, v))
 
 SETUP = "setup"
 PHASE_1 = "phase_1"
@@ -151,6 +161,18 @@ class FinalBoss:
         self.floor_fragments = []
         self.boss_body_flicker = 0.0
         self._phase8_dialogue_done = False
+        self.form = EntityForm(seed=3)
+        self.fx = EntityTimeWarpFX()
+        self.echo_snapshots = []
+        self._echo_frame = 0
+        self.time_scars = []
+        self.moving_norm = 0.0
+        self.warp_intensity = 0.0
+        self._prev_boss_x = None
+        self._prev_boss_y = None
+        self._tp_pending = None
+        self._whoosh_cd = 0.0
+        self._last_screen_pos = (CX, HALF_HEIGHT)
         self._last_player_x = 0.0
         self._last_player_y = 0.0
         self._last_player_angle = 0.0
@@ -257,6 +279,20 @@ class FinalBoss:
         self.time_freeze_dialogue_done = False
         self.floor_fragments = []
         self.boss_body_flicker = 0.0
+        self.echo_snapshots = []
+        self._echo_frame = 0
+        self.time_scars = []
+        self.moving_norm = 0.0
+        self.warp_intensity = 0.0
+        self._prev_boss_x = None
+        self._prev_boss_y = None
+        self._tp_pending = None
+        self._whoosh_cd = 0.0
+        self.fx.intensity = 0.0
+        self.fx.boss_screen_pos = None
+        self.fx._cracks.clear()
+        self.fx._ripples.clear()
+        self.fx._implosion = None
         self._init_particles()
         self.boss_x = float(CX)
         self.boss_y = float(CY - 400)
@@ -280,11 +316,19 @@ class FinalBoss:
             base *= 0.5
         return base
 
-    def _play_sfx(self, key):
+    def _play_sfx(self, key, base=1.0):
         path = EFFECT_FILES.get(key, "")
         if path and os.path.exists(path):
             try:
-                audio.play_sound(path)
+                audio.play_sound(path, base=base)
+            except Exception:
+                pass
+
+    def _play_sfx_slowed(self, key, rate=0.6, volume=1.0):
+        path = EFFECT_FILES.get(key, "")
+        if path and os.path.exists(path):
+            try:
+                audio.play_sfx_slowed(path, rate=rate, volume=volume)
             except Exception:
                 pass
 
@@ -314,14 +358,15 @@ class FinalBoss:
             self.projectiles.append(BossProjectile(px, py, vx, vy, FINAL_BOSS_PROJECTILE_DAMAGE))
 
     def _fire_ring(self, px, py, count=8):
-        self._play_sfx("explosion")
+        self._play_sfx("ring_fire")
         for i in range(count):
             angle = (2 * math.pi / count) * i
             vx, vy = math.cos(angle) * FINAL_BOSS_SHOCKWAVE_SPEED, math.sin(angle) * FINAL_BOSS_SHOCKWAVE_SPEED
             self.projectiles.append(BossProjectile(px, py, vx, vy, FINAL_BOSS_SHOCKWAVE_DAMAGE, radius=8, color=ALIEN_AMBER))
 
     def _teleport_boss(self, tx, ty, world_ref, doors_ref):
-        self._play_sfx("rewind")
+        if self._tp_pending is not None:
+            return
         for _ in range(20):
             test_x = tx + random.uniform(-300, 300)
             test_y = ty + random.uniform(-300, 300)
@@ -329,7 +374,14 @@ class FinalBoss:
             tile_y = int(test_y // TILE) * TILE
             if world_ref and (tile_x, tile_y) not in world_ref:
                 self.screen_flash = 0.5
-                self.boss_x, self.boss_y = test_x, test_y
+                self.fx.implosion(self._last_screen_pos, ENTITY_TELEPORT_WINDUP)
+                self._tp_pending = {
+                    "to": (test_x, test_y),
+                    "from": (self.boss_x, self.boss_y),
+                    "t": ENTITY_TELEPORT_WINDUP,
+                    "max": ENTITY_TELEPORT_WINDUP,
+                }
+                self._play_sfx_slowed("dilation", rate=0.45, volume=0.7)
                 return
 
     def _move_boss_toward(self, tx, ty, speed, dt, world_ref, doors_ref):
@@ -478,6 +530,43 @@ class FinalBoss:
         self._player_ref = player
         self._world_ref = world_ref
         self._doors_ref = doors_ref
+        if self._tp_pending is not None:
+            self._tp_pending["t"] -= dt
+            if self._tp_pending["t"] <= 0:
+                frm_x, frm_y = self._tp_pending["from"]
+                to_x, to_y = self._tp_pending["to"]
+                self.boss_x, self.boss_y = to_x, to_y
+                self.time_scars.append({"x": frm_x, "y": frm_y, "life": ENTITY_SCAR_LIFE})
+                self.fx.spike(ENTITY_WARP_TELEPORT_SPIKE)
+                self.screen_flash = 0.5
+                self.screen_shake = max(self.screen_shake, 5.0)
+                self._play_sfx_slowed("explosion", rate=0.5, volume=0.9)
+                self._prev_boss_x, self._prev_boss_y = self.boss_x, self.boss_y
+                self._tp_pending = None
+        speed = 0.0
+        if self._prev_boss_x is not None and dt > 0:
+            speed = math.hypot(self.boss_x - self._prev_boss_x,
+                               self.boss_y - self._prev_boss_y) / dt
+        self._prev_boss_x, self._prev_boss_y = self.boss_x, self.boss_y
+        self.moving_norm = min(1.0, speed / 700.0)
+        base_warp = self.moving_norm * ENTITY_WARP_DASH_INTENSITY
+        if self.dash_timer > 0 or self.charge_timer > 0:
+            base_warp = max(base_warp, ENTITY_WARP_CHARGE_INTENSITY)
+        ambient = 0.0
+        if self.state == FINAL:
+            ambient = ENTITY_WARP_FINAL_AMBIENT * (1.0 + self.anger_level)
+        elif self.state == PHASE_11:
+            ambient = ENTITY_WARP_FINAL_AMBIENT * 0.5
+        self.warp_intensity = max(base_warp, self.fx.intensity)
+        self.fx.update(dt, ambient=ambient)
+        self._whoosh_cd -= dt
+        if base_warp > 0.45 and self._whoosh_cd <= 0:
+            self._play_sfx_slowed("rewind", rate=0.55, volume=0.7)
+            self._whoosh_cd = 0.7
+        for scar in self.time_scars[:]:
+            scar["life"] -= dt
+            if scar["life"] <= 0:
+                self.time_scars.remove(scar)
         self._last_player_x = player.x
         self._last_player_y = player.y
         self._last_player_angle = player.angle
@@ -685,6 +774,7 @@ class FinalBoss:
                 self.dash_vx = (dx / d) * FINAL_BOSS_DASH_SPEED
                 self.dash_vy = (dy / d) * FINAL_BOSS_DASH_SPEED
                 self.dash_timer = FINAL_BOSS_DASH_DURATION
+                self._play_sfx("dash_pass", base=0.8)
                 self.boss_flicker = 1.0
             elif roll < 0.50:
                 self._fire_ring(self.boss_x, self.boss_y)
@@ -891,6 +981,7 @@ class FinalBoss:
                 self.dash_vx = (dx / d) * FINAL_BOSS_DASH_SPEED * 1.5
                 self.dash_vy = (dy / d) * FINAL_BOSS_DASH_SPEED * 1.5
                 self.dash_timer = FINAL_BOSS_DASH_DURATION * 0.7
+                self._play_sfx("dash_pass", base=0.8)
                 self.boss_flicker = 1.0
             elif roll < 0.7:
                 self._fire_spread(self.boss_x, self.boss_y, player.x, player.y, count=7, spread=0.6)
@@ -1063,6 +1154,7 @@ class FinalBoss:
                 self.dash_vx = (dx2 / d2) * FINAL_BOSS_DASH_SPEED * 2
                 self.dash_vy = (dy2 / d2) * FINAL_BOSS_DASH_SPEED * 2
                 self.dash_timer = FINAL_BOSS_DASH_DURATION
+                self._play_sfx("dash_pass", base=0.8)
                 self.boss_flicker = 1.0
             elif roll < 0.85:
                 self._fire_ring(self.boss_x, self.boss_y, count=16)
@@ -1114,6 +1206,7 @@ class FinalBoss:
             self.boss_hp = 0
             self.state = DEATH
             self._play_sfx("death")
+            self._play_sfx("entity_death_implode", base=0.9)
             self.death_timer = 0.0
             self.death_stage = 0
             self._clear_dialogue()
@@ -1162,7 +1255,8 @@ class FinalBoss:
             self._draw_rift(screen, rift)
         for frag in self.floor_fragments:
             self._draw_floor_fragment(screen, frag)
-        self._draw_boss_entity(screen, player)
+        self._draw_time_scars(screen, player)
+        self._draw_boss_entity(screen, player, depth_buffer)
         if self.clone_active:
             for clone in self.clones:
                 self._draw_clone(screen, clone, player)
@@ -1204,16 +1298,18 @@ class FinalBoss:
             pygame.draw.circle(glow, (255, 255, 255, 120), (r * 2, r * 2), r)
             screen.blit(glow, (CX - r * 2, CY + 200 - r * 2))
         if self.entity_light_radius > 0:
-            r = int(self.entity_light_radius)
-            ex, ey = CX, CY - 400
-            glow = pygame.Surface((r * 4, r * 4), pygame.SRCALPHA)
-            pygame.draw.circle(glow, (255, 30, 30, 40), (r * 2, r * 2), r * 2)
-            pygame.draw.circle(glow, (255, 50, 50, 100), (r * 2, r * 2), r)
-            screen.blit(glow, (ex - r * 2, ey - r * 2))
-            silhouette = pygame.Surface((60, 80), pygame.SRCALPHA)
-            pygame.draw.ellipse(silhouette, (180, 20, 20, 150), (10, 0, 40, 60))
-            pygame.draw.rect(silhouette, (150, 15, 15, 120), (15, 55, 30, 25))
-            screen.blit(silhouette, (ex - 30, ey - 40))
+            now = pygame.time.get_ticks() / 1000.0
+            progress = min(1.0, self.entity_light_radius / 80.0)
+            size = HEIGHT * (0.30 + 0.12 * progress) + math.sin(now * 0.9) * 6
+            open_e = _clamp01((self.setup_timer - 3.2) / 1.8)
+            rendered = self.form.draw(
+                screen, CX, CY - 330, size, now,
+                angle=math.pi / 2 + math.sin(now * 0.5) * 0.06,
+                anger=0.25, hp_ratio=1.0, moving=0.0,
+                alpha_mult=min(1.0, progress * 1.35),
+                eye_open=open_e, extra_eyes=0.0,
+            )
+            self.fx.apply_entity_split(screen, rendered, (CX, CY - 330))
         if self.player_walking and self.auto_walk_target:
             px = CX
             py = min(CY + 200, self.setup_timer * 30)
@@ -1234,15 +1330,22 @@ class FinalBoss:
         screen.fill((0, 0, 0))
         t = self.death_timer
         if t < 5.0 and self.boss_visible:
-            alpha = max(0, 255 - int(t * 50))
-            r = max(1, int(60 * max(0, 1 - t / 5.0)))
-            glow = pygame.Surface((r * 6, r * 6), pygame.SRCALPHA)
-            pygame.draw.circle(glow, (255, 50, 50, alpha), (r * 3, r * 3), r * 3)
-            pygame.draw.circle(glow, (255, 100, 100, alpha), (r * 3, r * 3), r)
-            screen.blit(glow, (CX - r * 3, CY - 60 - r * 3))
-            for i in range(min(int(t * 3), 20)):
-                fx = CX + random.randint(-100, 100)
-                fy = CY - 60 + random.randint(-100, 100)
+            now = pygame.time.get_ticks() / 1000.0
+            fade = max(0.04, 1.0 - t / 5.0)
+            size = HEIGHT * 0.52 * (fade ** 0.75) + 24
+            open_e = max(0.0, 1.0 - t / 3.5)
+            anger = min(1.0, t * 2.0) * fade
+            rendered = self.form.draw(
+                screen, CX, CY - 60, size, now,
+                angle=math.pi / 2 + math.sin(now * 1.7) * 0.12,
+                anger=anger, hp_ratio=0.02,
+                moving=0.6 * fade, alpha_mult=min(1.0, fade * 1.25),
+                eye_open=open_e, extra_eyes=max(0.0, 5.0 - t * 1.4),
+            )
+            self.fx.apply_entity_split(screen, rendered, (CX, CY - 60))
+            if random.random() < 0.6:
+                fx = CX + random.randint(-160, 160)
+                fy = CY - 60 + random.randint(-140, 140)
                 fs = random.randint(2, 8)
                 fsurf = pygame.Surface((fs, fs), pygame.SRCALPHA)
                 fsurf.fill((255, 200, 100, max(0, 200 - int(t * 30))))
@@ -1275,128 +1378,147 @@ class FinalBoss:
             t_render.set_alpha(alpha)
             screen.blit(t_render, (CX - t_render.get_width() // 2, CY - 24))
 
-    def _draw_boss_entity(self, screen, player):
-        if not self.boss_visible:
-            return
-        if self.disappear_timer > 0:
-            if random.random() > 0.3:
-                return
+    def _project_boss(self, player):
         dx = self.boss_x - player.x
         dy = self.boss_y - player.y
         dist = math.hypot(dx, dy)
         if dist < 1.0:
-            return
+            return None
         theta = math.atan2(dy, dx)
         delta = (theta - player.angle) % (2 * math.pi)
         if delta > math.pi:
             delta -= 2 * math.pi
         if not (-HALF_FOV < delta < HALF_FOV):
-            return
+            return None
         screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
         ray_index = max(0, min(NUM_RAYS - 1, int(screen_x * NUM_RAYS / WIDTH)))
-        size = min(3000 / (dist + 0.0001), 300)
+        size = min(FINAL_BOSS_ENTITY_SCALE / (dist + 0.0001),
+                   FINAL_BOSS_ENTITY_MAX_SIZE)
+        return {"screen_x": screen_x, "ray": ray_index, "size": size, "dist": dist}
+
+    def _extra_eye_count(self):
+        hp = self._hp_ratio()
+        if hp <= 0.25:
+            return 5.0
+        if hp <= 0.45:
+            return 3.0
+        if hp <= 0.70:
+            return 1.5
+        return 0.0
+
+    def _draw_time_scars(self, screen, player):
+        if not self.time_scars:
+            return
+        now = pygame.time.get_ticks() / 1000.0
+        for scar in self.time_scars:
+            dx = scar["x"] - player.x
+            dy = scar["y"] - player.y
+            dist = math.hypot(dx, dy)
+            if dist < 1.0:
+                continue
+            theta = math.atan2(dy, dx)
+            delta = (theta - player.angle) % (2 * math.pi)
+            if delta > math.pi:
+                delta -= 2 * math.pi
+            if not (-HALF_FOV < delta < HALF_FOV):
+                continue
+            screen_x = int((delta + HALF_FOV) * (WIDTH / FOV))
+            f = _clamp01(scar["life"] / ENTITY_SCAR_LIFE)
+            a = int(130 * f)
+            r = 26 + int(14 * math.sin(now * 6 + scar["x"]))
+            size_c = r * 3
+            cv = pygame.Surface((size_c, size_c), pygame.SRCALPHA)
+            cc = size_c // 2
+            pygame.draw.circle(cv, (255, 60, 60, a), (cc, cc), r, 2)
+            pygame.draw.circle(cv, (150, 220, 235, a // 2), (cc + 2, cc),
+                               max(4, r - 7), 1)
+            for i in range(5):
+                sa = now * 1.5 + i * math.tau / 5
+                x1 = cc + int(math.cos(sa) * r * 0.4)
+                y1 = cc + int(math.sin(sa) * r * 0.4)
+                x2 = cc + int(math.cos(sa) * r)
+                y2 = cc + int(math.sin(sa) * r)
+                pygame.draw.line(cv, (200, 40, 50, a), (x1, y1), (x2, y2), 2)
+            screen.blit(cv, (screen_x - cc, HALF_HEIGHT - cc))
+
+    def _draw_boss_entity(self, screen, player, depth_buffer=None):
+        if not self.boss_visible:
+            return
+        now = pygame.time.get_ticks() / 1000.0
+        proj = self._project_boss(player)
+        if proj is None:
+            return
+        windup = self._tp_pending is not None
+        if not windup and self.disappear_timer > 0 and random.random() > 0.3:
+            return
+        size = proj["size"]
+        alpha_mult = 1.0
+        if windup:
+            f = 1.0 - self._tp_pending["t"] / self._tp_pending["max"]
+            size *= 1.0 - 0.35 * f
+            alpha_mult = max(0.15, 1.0 - f * 0.8)
         flicker_offset = 0
         if self.boss_flicker > 0:
             flicker_offset = int(math.sin(self.boss_flicker * 50) * 20)
         if self.boss_body_flicker > 0 and random.random() < 0.3:
-            flicker_offset += random.randint(-30, 30)
-        cx = int(screen_x + flicker_offset)
+            j = int(max(4, size * 0.04))
+            flicker_offset += random.randint(-j, j)
+        cx = int(proj["screen_x"] + flicker_offset)
         cy = HALF_HEIGHT
-        t = pygame.time.get_ticks() / 1000.0
-        anger = self.anger_level
-        hp_ratio = self._hp_ratio()
-        body_radius = int(size * 0.8)
-        if body_radius < 4:
+
+        ghost = 0.0
+        depth_buffer = depth_buffer or []
+        ri = proj["ray"]
+        if not windup and ri < len(depth_buffer):
+            wall_dist = depth_buffer[ri]
+            if proj["dist"] >= wall_dist:
+                closeness = max(0.0, 1.0 - min(1.0, (proj["dist"] - wall_dist) / 500.0))
+                ghost = 0.55 + 0.40 * closeness
+
+        rendered = self.form.render(
+            screen, cx, cy, size, now,
+            angle=self.boss_angle,
+            anger=self.anger_level,
+            hp_ratio=self._hp_ratio(),
+            moving=min(1.0, self.moving_norm + self.warp_intensity * 0.3),
+            extra_eyes=self._extra_eye_count(),
+        )
+        if rendered is None:
             return
+        self._last_screen_pos = (cx, cy)
+        self.fx.boss_screen_pos = (cx, cy)
 
-        layer = pygame.Surface((body_radius * 6, body_radius * 6), pygame.SRCALPHA)
-        lc = body_radius * 3
+        capture_echo = not windup and ghost <= 0.01 and size > 200
+        if capture_echo:
+            self._echo_frame += 1
+            if self._echo_frame % 3 == 0:
+                self.echo_snapshots.append({"rendered": rendered, "pos": (cx, cy)})
+                if len(self.echo_snapshots) > 3:
+                    self.echo_snapshots.pop(0)
+        echoes = self.echo_snapshots[:-1] if capture_echo and \
+            self._echo_frame % 3 == 0 else self.echo_snapshots
+        echo_alphas = (0.13, 0.08, 0.05)
+        n_echo = len(echoes)
+        for i, snap in enumerate(echoes):
+            rank = n_echo - 1 - i
+            fade = echo_alphas[min(rank, len(echo_alphas) - 1)]
+            self.form.blit(screen, snap["rendered"], alpha_mult=fade, pos=snap["pos"])
 
-        core_r = int(body_radius * 0.45)
-        if hp_ratio > 0.5:
-            core_color = (180, 30, 30)
-        elif hp_ratio > 0.2:
-            core_color = (220, 120, 30)
-        else:
-            p = abs(math.sin(t * 6))
-            core_color = (255, int(150 + p * 105), int(100 + p * 100))
-        core_alpha = 220
-        pygame.draw.circle(layer, (*core_color, core_alpha), (lc, lc), core_r)
-        inner_r = int(core_r * 0.6)
-        pygame.draw.circle(layer, (*core_color, 120), (lc, lc), inner_r)
-        bright = (min(255, core_color[0] + 60), min(255, core_color[1] + 80), min(255, core_color[2] + 80))
-        pygame.draw.circle(layer, (*bright, 180), (lc, lc), int(core_r * 0.3))
-
-        void_r = int(body_radius * 1.0)
-        void_color = (40, 8, 15)
-        pygame.draw.circle(layer, (*void_color, 210), (lc, lc), void_r)
-        edge_color = (100, 18, 30)
-        pygame.draw.circle(layer, (*edge_color, 150), (lc, lc), void_r, 3)
-
-        ring_speeds = [1.2, -0.8, 0.6]
-        ring_alphas = [70, 90, 60]
-        ring_colors = [(150, 20, 30), (200, 40, 60), (120, 15, 25)]
-        for i, (rs, ra, rc) in enumerate(zip(ring_speeds, ring_alphas, ring_colors)):
-            ring_r = int(body_radius * (0.85 + i * 0.18))
-            ring_w = max(1, int(2 + anger * 2))
-            a = int(ra + anger * 40)
-            angle_off = t * rs + i * 1.2
-            for seg in range(24):
-                a1 = angle_off + seg * (math.pi * 2 / 24)
-                a2 = a1 + math.pi * 2 / 48
-                pts = []
-                for sa in [a1, a2]:
-                    ex = lc + int(math.cos(sa) * ring_r)
-                    ey = lc + int(math.sin(sa) * ring_r * 0.4)
-                    pts.append((ex, ey))
-                if len(pts) >= 2:
-                    pygame.draw.line(layer, (*rc, a), pts[0], pts[1], ring_w)
-
-        n_rays = 8
-        for i in range(n_rays):
-            base_a = (math.pi * 2 / n_rays) * i + t * 0.5
-            ray_len = body_radius * (0.7 + 0.3 * abs(math.sin(t * 2.5 + i * 0.8)))
-            ray_len *= (1.0 + anger * 0.5)
-            x1 = lc + int(math.cos(base_a) * void_r)
-            y1 = lc + int(math.sin(base_a) * void_r)
-            x2 = lc + int(math.cos(base_a) * (void_r + ray_len))
-            y2 = lc + int(math.sin(base_a) * (void_r + ray_len))
-            ray_a = int(80 + 70 * abs(math.sin(t * 3 + i)))
-            pygame.draw.line(layer, (255, 60, 40, ray_a), (x1, y1), (x2, y2), 2)
-
-        eye_r = int(body_radius * 0.14)
-        eye_dist = int(body_radius * 0.22)
-        for ei in range(2):
-            e_off = -1 if ei == 0 else 1
-            ex = lc + int(math.cos(self.boss_angle) * eye_dist) + int(math.sin(self.boss_angle) * e_off * eye_r)
-            ey = lc + int(math.sin(self.boss_angle) * eye_dist) - int(math.cos(self.boss_angle) * e_off * eye_r)
-            pygame.draw.circle(layer, (255, 80, 80, 255), (ex, ey), eye_r)
-            pupil_r = max(1, eye_r // 2)
-            pygame.draw.circle(layer, (255, 220, 220, 255), (ex, ey), pupil_r)
-
-        if self.boss_glow > 0:
-            aura_r = int(body_radius * 1.8)
-            aura = pygame.Surface((aura_r * 2, aura_r * 2), pygame.SRCALPHA)
-            aura_a = int(60 * self.boss_glow)
-            pygame.draw.circle(aura, (255, 40, 30, aura_a), (aura_r, aura_r), aura_r)
-            pygame.draw.circle(aura, (200, 30, 20, aura_a // 2), (aura_r, aura_r), int(aura_r * 0.7))
-            layer.blit(aura, (lc - aura_r, lc - aura_r))
+        self.form.blit(screen, rendered, alpha_mult=alpha_mult, ghost=ghost)
+        self.fx.apply_entity_split(screen, rendered, (cx, cy))
 
         if self.gravity_active:
-            spiral_a = int(50 + 30 * abs(math.sin(t * 3)))
+            r = EntityForm.body_radius(size)
+            spiral_a = int(50 + 30 * abs(math.sin(now * 3)))
             for si in range(6):
                 pts = []
                 for step in range(30):
-                    sa = si * (math.pi * 2 / 6) + t * 2 + step * 0.3
-                    sr = body_radius * 0.5 + step * body_radius * 0.06
-                    sx = lc + int(math.cos(sa) * sr)
-                    sy = lc + int(math.sin(sa) * sr)
-                    pts.append((sx, sy))
+                    sa = si * (math.pi * 2 / 6) + now * 2 + step * 0.3
+                    sr = r * 0.5 + step * r * 0.06
+                    pts.append((cx + int(math.cos(sa) * sr),
+                                cy + int(math.sin(sa) * sr)))
                 if len(pts) >= 2:
-                    pygame.draw.lines(layer, (140, 40, 220, spiral_a), False, pts, 2)
-
-        sprite_w, sprite_h = layer.get_size()
-        screen.blit(layer, (cx - sprite_w // 2, cy - sprite_h // 2))
+                    pygame.draw.lines(screen, (140, 40, 220, spiral_a), False, pts, 2)
 
     def _draw_clone(self, screen, clone, player):
         if not clone["alive"]:
@@ -1417,18 +1539,17 @@ class FinalBoss:
         if not (-HALF_FOV < delta < HALF_FOV):
             return
         screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
-        size = min(3000 / (dist + 0.0001), 200)
-        sprite_size = max(1, int(size * 10.0))
-        sprite = pygame.Surface((sprite_size, sprite_size), pygame.SRCALPHA)
-        color = (200, 80, 80, alpha)
-        pygame.draw.circle(sprite, color, (sprite_size // 2, sprite_size // 2), sprite_size // 3)
-        inner = (150, 30, 30, alpha)
-        pygame.draw.circle(sprite, inner, (sprite_size // 2, sprite_size // 2), sprite_size // 5)
+        size = min(FINAL_BOSS_ENTITY_SCALE / (dist + 0.0001), 1360)
+        now = pygame.time.get_ticks() / 1000.0
+        self.form.draw(
+            screen, int(screen_x), HALF_HEIGHT, size, now,
+            angle=self.boss_angle, anger=0.3,
+            hp_ratio=max(0.05, clone["hp"] / clone["max_hp"]), moving=0.15,
+            alpha_mult=alpha / 255.0, eye_open=1.0,
+            extra_eyes=0.0, mode="clone",
+        )
         x = screen_x - size // 2
         y = HALF_HEIGHT - size // 2
-        dx_screen = (size - sprite_size) // 2
-        dy_screen = (size - sprite_size) // 2
-        screen.blit(sprite, (int(x + dx_screen), int(y + dy_screen)))
         if clone["alive"] and clone["hp"] > 0:
             bar_w = size
             bar_h = max(3, int(size * 0.06))
@@ -1450,16 +1571,14 @@ class FinalBoss:
         if not (-HALF_FOV < delta < HALF_FOV):
             return
         screen_x = (delta + HALF_FOV) * (WIDTH / FOV)
-        size = min(3000 / (dist + 0.0001), 250)
-        sprite_size = max(1, int(size * 12.0))
-        sprite = pygame.Surface((sprite_size, sprite_size), pygame.SRCALPHA)
-        pygame.draw.circle(sprite, (0, 200, 200, 180), (sprite_size // 2, sprite_size // 2), sprite_size // 3)
-        pygame.draw.circle(sprite, (0, 150, 150, 120), (sprite_size // 2, sprite_size // 2), sprite_size // 5)
-        x = screen_x - size // 2
-        y = HALF_HEIGHT - size // 2
-        dx_s = (size - sprite_size) // 2
-        dy_s = (size - sprite_size) // 2
-        screen.blit(sprite, (int(x + dx_s), int(y + dy_s)))
+        size = min(FINAL_BOSS_ENTITY_SCALE / (dist + 0.0001), 1520)
+        now = pygame.time.get_ticks() / 1000.0
+        self.form.draw(
+            screen, int(screen_x), HALF_HEIGHT, size, now,
+            angle=self.boss_angle, anger=0.5, hp_ratio=0.4,
+            moving=0.1, alpha_mult=0.85, eye_open=1.0,
+            extra_eyes=2.0, mode="clone", color_shift=(-110, 40, 55),
+        )
 
     def _draw_projectiles_screen(self, screen):
         if not hasattr(self, '_last_player_x'):

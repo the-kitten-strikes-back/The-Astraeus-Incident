@@ -107,15 +107,9 @@ ROOM_AMBIENCE_MAP = {
     "O": {"floor": 1, "ceiling": 1, "tint": (200, 180, 255), "alpha": 30, "scan": False},
 }
 EFFECTS_DIR = os.path.join(BASE_DIR, "assets", "sounds", "effects")
-EFFECT_FILES = {
-    "gunshot": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
-    "reload": os.path.join(EFFECTS_DIR, "reload.mp3"),
-    "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
-    "level_up": os.path.join(EFFECTS_DIR, "level_up.mp3"),
-}
+
 # Music configuration - maps level ranges to music files
 MUSIC_DIR = os.path.join(BASE_DIR, "assets", "sounds", "music")
-EFFECTS_DIR = os.path.join(BASE_DIR, "assets", "sounds", "effects")
 
 MUSIC_TRACKS = {
     (0, 5): os.path.join(MUSIC_DIR, "levels0005.mp3"),
@@ -126,14 +120,35 @@ MUSIC_TRACKS = {
 
 # Sound effects configuration
 EFFECT_FILES = {
-    "laser": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
-    "level_up": os.path.join(EFFECTS_DIR, "level_up.mp3"),
-    "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
+    # weapons
+    "gunshot": os.path.join(EFFECTS_DIR, "gunshot.mp3"),
+    "shotgun_fire": os.path.join(EFFECTS_DIR, "shotgun_fire.mp3"),
+    "sniper_fire": os.path.join(EFFECTS_DIR, "sniper_fire.mp3"),
+    "mg_fire": os.path.join(EFFECTS_DIR, "mg_fire.mp3"),
+    "laser": os.path.join(EFFECTS_DIR, "laser.mp3"),
     "reload": os.path.join(EFFECTS_DIR, "reload.mp3"),
-    "gunshot": os.path.join(EFFECTS_DIR, "laser.mp3"),
+    "weapon_switch": os.path.join(EFFECTS_DIR, "weapon_switch.mp3"),
+    # player
+    "player_hit": os.path.join(EFFECTS_DIR, "player_hit.mp3"),
+    # enemies
+    "enemy_death_normal": os.path.join(EFFECTS_DIR, "enemy_death_normal.mp3"),
+    # abilities
     "dilation": os.path.join(EFFECTS_DIR, "dilation.mp3"),
     "echo": os.path.join(EFFECTS_DIR, "echo.mp3"),
     "rewind": os.path.join(EFFECTS_DIR, "rewind.mp3"),
+    # world / events / doors / puzzles
+    "explosion": os.path.join(EFFECTS_DIR, "explosion.mp3"),
+    "gravity_tilt_warn": os.path.join(EFFECTS_DIR, "gravity_tilt_warn.mp3"),
+    "door_slide_open": os.path.join(EFFECTS_DIR, "door_slide_open.mp3"),
+    "puzzle_fail": os.path.join(EFFECTS_DIR, "puzzle_fail.mp3"),
+    # meta
+    "level_up": os.path.join(EFFECTS_DIR, "level_up.mp3"),
+    # entity fights
+    "death": os.path.join(EFFECTS_DIR, "death.mp3"),
+    "opening": os.path.join(EFFECTS_DIR, "opening.mp3"),
+    "ring_fire": os.path.join(EFFECTS_DIR, "ring_fire.mp3"),
+    "dash_pass": os.path.join(EFFECTS_DIR, "dash_pass.mp3"),
+    "entity_death_implode": os.path.join(EFFECTS_DIR, "entity_death_implode.mp3"),
 }
 
 # Time-freeze audio slowdown (1.0 = normal speed, 0.1 = 10x slower).
@@ -253,7 +268,7 @@ ENTITY_AMBIENT_TAUNTS = [
 ]
 
 # Final Boss — THE ENTITY
-FINAL_BOSS_MAX_HP = 8000
+FINAL_BOSS_MAX_HP = 4000
 FINAL_BOSS_TELEPORT_CD = 1.5
 FINAL_BOSS_CHARGE_SPEED = 450.0
 FINAL_BOSS_CHARGE_DAMAGE = 45
@@ -270,6 +285,21 @@ FINAL_BOSS_CLONE_HP = 2500
 FINAL_BOSS_INTRO_DURATION = 12.0
 FINAL_BOSS_ARENA_RADIUS = 800.0
 FINAL_BOSS_PHASE_THRESHOLDS = [1.0, 0.85, 0.70, 0.65, 0.45, 0.35, 0.30, 0.20, 0.15, 0.10, 0.05, 0.03, 0.0]
+
+# The Entity — colossal form & time-warp distortion (visuals only)
+FINAL_BOSS_ENTITY_SCALE = 2250.0          # billboard projection divisor (was 3000)
+FINAL_BOSS_ENTITY_MAX_SIZE = 3920         # max on-screen size in px
+ENTITY_TELEPORT_WINDUP = 0.5             # implosion delay before a teleport lands
+ENTITY_SCAR_LIFE = 6.0                   # seconds a "time scar" lingers at teleport origin
+
+ENTITY_WARP_DECAY = 2.6                   # warp intensity units lost per second
+ENTITY_WARP_TELEPORT_SPIKE = 2
+ENTITY_WARP_DASH_INTENSITY = 1.5
+ENTITY_WARP_CHARGE_INTENSITY = 1.5
+ENTITY_WARP_FINAL_AMBIENT = 0.4          # constant strain during the FINAL phase
+ENTITY_WARP_GLITCH_BANDS = 10             # max displaced screen bands
+ENTITY_WARP_ABERRATION_MIN = 0.5         # RGB split threshold
+ENTITY_WARP_STREAK_MIN = 0.5              # radial smear threshold
 
 # Alien puzzle theme colors
 ALIEN_CYAN = (0, 255, 210)
